@@ -2,4 +2,11 @@
 name = "pittstop-pipeline"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["numpy", "shapely>=2", "pyproj", "pillow", "requests"]
+dependencies = [
+    "numpy",
+    "shapely>=2",
+    "pillow",
+    "requests",
+    "pmtiles>=3.8.1",
+    "mapbox-vector-tile>=2.2.0",
+]

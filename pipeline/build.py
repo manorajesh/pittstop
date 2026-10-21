@@ -3,12 +3,14 @@
   public/data/parking.json  street blocks, each with its parking class and the rules that apply
   public/data/lots.json     lots and garages
   public/data/zones.json    residential permit zones, for the faint overlay
-  public/data/walk.bin      the walking network, with elevation, for walk times from a pin
+  public/data/walk.bin.gz   the walking network, with elevation, for walk times from a pin (gzipped,
+                            since hosts rarely compress binaries; the page inflates it in a worker)
 
 Nothing here erases a street: a metered block is free at 7 pm and a permit block is fine for an hour,
 so every block keeps its rules and the page decides what's free for the hours someone asks about."""
 
 import csv
+import gzip
 import json
 import math
 import re
@@ -363,11 +365,11 @@ def write_walk(path, ll, elev, edges):
     micro = np.round(ll * 1e6).astype(np.int64)
     delta = np.diff(micro, axis=0, prepend=np.zeros((1, 2), dtype=np.int64)).astype("<i4")
     bits = np.packbits(np.array(flags, dtype=np.uint8), bitorder="little")
-    with open(path, "wb") as f:
+    with gzip.GzipFile(path, "wb", compresslevel=9, mtime=0) as f:
         f.write(b"PSW1" + struct.pack("<II", n, m))
         f.write(delta[:, 0].tobytes() + delta[:, 1].tobytes())
         f.write(np.round(elev * 10).astype("<i2").tobytes())
-        pad = (-f.tell()) % 4
+        pad = (12 + 8 * n + 2 * n) % 4 and 4 - (12 + 8 * n + 2 * n) % 4
         f.write(b"\0" * pad)
         f.write(offsets.tobytes() + np.array(targets, dtype="<u4").tobytes() + bits.tobytes())
 
@@ -419,7 +421,8 @@ def main():
 
     print("walking")
     index, coords, ll, elev, edges, _ = walk_graph(nodes, ways, boundary, terrain)
-    write_walk(OUT / "walk.bin", ll, elev, edges)
+    (OUT / "walk.bin").unlink(missing_ok=True)
+    write_walk(OUT / "walk.bin.gz", ll, elev, edges)
     pts = np.array(coords)
     grid = defaultdict(list)
     for i, (x, y) in enumerate(pts):

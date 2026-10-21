@@ -7,12 +7,12 @@ type Step = { sel?: string; title: string; body: string };
 const STEPS: Step[] = [
   {
     title: "Pitt stop, in a minute",
-    body: "This finds parking near where you're going, for the hours you'll be there: free first, then what paid parking would cost. Six quick stops.",
+    body: "This finds parking near where you're going, for the hours you'll be there: free first, then what paid parking would cost. Seven quick stops.",
   },
   {
     sel: ".ps-search",
     title: "Say where",
-    body: "Tap anywhere on the map to drop a pin, search for a place, or use the target button for your location. Around Oakland there are shortcuts for CMU, the Cathedral, Phipps and Presby.",
+    body: "Tap anywhere on the map to drop a pin, search a street, corner (“Forbes & Craig”) or place, or use the target button to start from where you are. Around Oakland there are shortcuts for CMU, the Cathedral, Phipps and Presby.",
   },
   {
     sel: ".ps-when-box",
@@ -33,6 +33,11 @@ const STEPS: Step[] = [
     sel: ".ps-sources",
     title: "Check the source",
     body: "Around CMU, every garage, lot and meter street was checked by hand against CMU Transportation Services and the Parking Authority, and each one links to its source. Elsewhere it's city and OpenStreetMap data, some of it years old. Posted signs always win.",
+  },
+  {
+    sel: ".ps-private",
+    title: "It's private",
+    body: "Your location and searches never leave your device. The map, fonts and data all come from this site, with no accounts, cookies, analytics or other companies involved. Tap the lock line for details.",
   },
   {
     sel: ".ps-help",

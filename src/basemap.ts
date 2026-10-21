@@ -1,5 +1,5 @@
-// A quiet dark basemap over OpenFreeMap's OpenMapTiles vectors: just enough land, water, parks and
-// streets to find your way, so the parking lines carry the color.
+// A quiet dark basemap. Tiles and label glyphs are this site's own copy of Pittsburgh from the
+// Protomaps build (pipeline/basemap.py), so no tile server sees where anyone looks.
 import type { StyleSpecification } from "maplibre-gl";
 
 const C = {
@@ -9,7 +9,6 @@ const C = {
   building: "#131313",
   minor: "#1a1a1a",
   major: "#222222",
-  casing: "#0b0b0b",
   label: "#5c5c5c",
   labelHalo: "#0b0b0b",
   place: "#7a7a7a",
@@ -17,60 +16,74 @@ const C = {
 
 export const FONT = ["Noto Sans Regular"];
 
+// MapLibre needs absolute templates; URL() would escape the braces.
+const here = () => location.origin + import.meta.env.BASE_URL;
+
 export function basemap(): StyleSpecification {
   return {
     version: 8,
-    glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+    glyphs: here() + "glyphs/{fontstack}/{range}.pbf",
     sources: {
-      omt: { type: "vector", url: "https://tiles.openfreemap.org/planet", attribution: '<a href="https://openfreemap.org">OpenFreeMap</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' },
+      pgh: {
+        type: "vector",
+        tiles: [here() + "tiles/{z}/{x}/{y}.mvt"],
+        minzoom: 0,
+        maxzoom: 15,
+        bounds: [-80.105, 40.355, -79.855, 40.505],
+        attribution: '<a href="https://protomaps.com">Protomaps</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      },
     },
     layers: [
       { id: "bg", type: "background", paint: { "background-color": C.bg } },
-      { id: "park", type: "fill", source: "omt", "source-layer": "park", paint: { "fill-color": C.park } },
-      { id: "wood", type: "fill", source: "omt", "source-layer": "landcover", filter: ["in", ["get", "class"], ["literal", ["wood", "grass"]]], paint: { "fill-color": C.park, "fill-opacity": 0.7 } },
-      { id: "water", type: "fill", source: "omt", "source-layer": "water", paint: { "fill-color": C.water } },
-      { id: "building", type: "fill", source: "omt", "source-layer": "building", minzoom: 14, paint: { "fill-color": C.building, "fill-opacity": ["interpolate", ["linear"], ["zoom"], 14, 0, 15.5, 1] } },
+      {
+        id: "park",
+        type: "fill",
+        source: "pgh",
+        "source-layer": "landuse",
+        filter: ["in", ["get", "kind"], ["literal", ["park", "grass", "wood", "garden", "forest", "nature_reserve", "cemetery", "golf_course", "recreation_ground", "meadow", "scrub"]]],
+        paint: { "fill-color": C.park },
+      },
+      { id: "water", type: "fill", source: "pgh", "source-layer": "water", filter: ["==", ["geometry-type"], "Polygon"], paint: { "fill-color": C.water } },
+      { id: "building", type: "fill", source: "pgh", "source-layer": "buildings", minzoom: 14, paint: { "fill-color": C.building, "fill-opacity": ["interpolate", ["linear"], ["zoom"], 14, 0, 15.5, 1] } },
       {
         id: "road-minor",
         type: "line",
-        source: "omt",
-        "source-layer": "transportation",
-        filter: ["in", ["get", "class"], ["literal", ["minor", "service", "track", "path"]]],
+        source: "pgh",
+        "source-layer": "roads",
+        filter: ["in", ["get", "kind"], ["literal", ["minor_road", "path", "other"]]],
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": C.minor,
-          "line-width": ["interpolate", ["exponential", 1.6], ["zoom"], 12, 0.5, 16, 6, 19, 22],
+          "line-width": ["interpolate", ["exponential", 1.6], ["zoom"], 12, 0.5, 16, ["match", ["get", "kind"], "path", 1.5, 6], 19, ["match", ["get", "kind"], "path", 4, 22]],
         },
       },
       {
         id: "road-major",
         type: "line",
-        source: "omt",
-        "source-layer": "transportation",
-        filter: ["in", ["get", "class"], ["literal", ["primary", "secondary", "tertiary", "trunk", "motorway"]]],
+        source: "pgh",
+        "source-layer": "roads",
+        filter: ["in", ["get", "kind"], ["literal", ["major_road", "highway"]]],
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-color": C.major,
-          "line-width": ["interpolate", ["exponential", 1.6], ["zoom"], 10, 0.6, 16, 10, 19, 32],
-        },
+        paint: { "line-color": C.major, "line-width": ["interpolate", ["exponential", 1.6], ["zoom"], 10, 0.6, 16, 10, 19, 32] },
       },
       {
         id: "rail",
         type: "line",
-        source: "omt",
-        "source-layer": "transportation",
-        filter: ["==", ["get", "class"], "rail"],
+        source: "pgh",
+        "source-layer": "roads",
+        filter: ["==", ["get", "kind"], "rail"],
         paint: { "line-color": "#191919", "line-width": 1, "line-dasharray": [3, 3] },
       },
       {
         id: "street-label",
         type: "symbol",
-        source: "omt",
-        "source-layer": "transportation_name",
+        source: "pgh",
+        "source-layer": "roads",
         minzoom: 15,
+        filter: ["in", ["get", "kind"], ["literal", ["minor_road", "major_road", "highway"]]],
         layout: {
           "symbol-placement": "line",
-          "text-field": ["coalesce", ["get", "name:en"], ["get", "name"]],
+          "text-field": ["get", "name"],
           "text-font": FONT,
           "text-size": ["interpolate", ["linear"], ["zoom"], 15, 10, 18, 13],
           "text-letter-spacing": 0.04,
@@ -80,9 +93,9 @@ export function basemap(): StyleSpecification {
       {
         id: "place-label",
         type: "symbol",
-        source: "omt",
-        "source-layer": "place",
-        filter: ["in", ["get", "class"], ["literal", ["suburb", "neighbourhood", "quarter", "city", "town"]]],
+        source: "pgh",
+        "source-layer": "places",
+        filter: ["in", ["get", "kind"], ["literal", ["neighbourhood", "macrohood", "locality"]]],
         maxzoom: 15.5,
         layout: {
           "text-field": ["coalesce", ["get", "name:en"], ["get", "name"]],

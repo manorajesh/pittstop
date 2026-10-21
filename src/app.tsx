@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks"
 import { Data, load, Option, rank, Results, sourcesFor, verdictsFor } from "./data";
 import { COLORS, ParkingMap } from "./map";
 import { clock, describe, fromLocal, MAX_WINDOW_MIN, money, Status, toLocal, Verdict, Who, Window } from "./rules";
+import { buildIndex, Hit, search } from "./search";
 import { Tour } from "./tour";
 import type { Route } from "./walk";
 
@@ -123,7 +124,11 @@ export function App() {
   const [selected, setSelected] = useState<Option | null>(null);
   const [route, setRoute] = useState<Route | null>(null);
   const [whenOpen, setWhenOpen] = useState(false);
-  const [sheetOpen, setSheetOpen] = useState(false);
+  // Phones only: how far the bottom sheet is pulled up.
+  const [sheet, setSheet] = useState<Sheet>("half");
+  const [locating, setLocating] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [privacyOpen, setPrivacyOpen] = useState(false);
   const [showMisfit, setShowMisfit] = useState(false);
   const [hover, setHover] = useState<{ name: string; verdict: Verdict; x: number; y: number } | null>(null);
   const [show, setShow] = useState<Set<Status>>(() => new Set(stored<Status[]>(SHOW_KEY, ALL).filter((s) => ALL.includes(s))));
@@ -163,7 +168,10 @@ export function App() {
   // The map lives as long as the page; the data loads alongside the style.
   useEffect(() => {
     const m = new ParkingMap(mapEl.current!, {
-      pin: (lon, lat) => setPin([lon, lat]),
+      pin: (lon, lat) => {
+        setNotice("");
+        setPin([lon, lat]);
+      },
       hover: setHover,
       ready: () => setMapReady(true),
     });
@@ -177,7 +185,7 @@ export function App() {
     mapRef.current!.setData(data);
     // The walking network waits for the first paint, then loads in the background.
     const idle = (window as any).requestIdleCallback ?? ((f: () => void) => setTimeout(f, 300));
-    idle(() => walker.load(import.meta.env.BASE_URL + "data/walk.bin").catch((e: Error) => setError(e.message)));
+    idle(() => walker.load(import.meta.env.BASE_URL + "data/walk.bin.gz").catch((e: Error) => setError(e.message)));
   }, [mapReady, data, walker]);
 
   const verdicts = useMemo(() => (data ? verdictsFor(data, win, who) : []), [data, win, who]);
@@ -193,10 +201,10 @@ export function App() {
     setSelected(null);
     setTimes(null);
     if (!pin) return;
-    setSheetOpen(true);
+    setSheet((s) => (s === "full" ? s : "half"));
     let live = true;
     setWalking(true);
-    walker.load(import.meta.env.BASE_URL + "data/walk.bin");
+    walker.load(import.meta.env.BASE_URL + "data/walk.bin.gz");
     walker
       .walk(pin[0], pin[1])
       .then((t) => live && setTimes(t))
@@ -243,21 +251,53 @@ export function App() {
     setWin(w);
   }, []);
 
+  // Your position stays on this device: it moves the pin and the "you" dot, and nothing else.
   const locate = useCallback(() => {
-    navigator.geolocation?.getCurrentPosition(
-      (p) => {
-        const at: [number, number] = [p.coords.longitude, p.coords.latitude];
-        setPin(at);
-        mapRef.current?.setPin(at, true);
-      },
-      () => setError("Couldn't get your location"),
-      { enableHighAccuracy: true, timeout: 8000 }
-    );
+    if (!("geolocation" in navigator) || !isSecureContext) {
+      setNotice("This browser can't share its location here. Search or tap the map instead.");
+      return;
+    }
+    setLocating(true);
+    setNotice("");
+    const found = (p: GeolocationPosition) => {
+      setLocating(false);
+      const at: [number, number] = [p.coords.longitude, p.coords.latitude];
+      if (!inPittsburgh(at)) {
+        setNotice("You're outside Pittsburgh, and pitt stop only covers the city. Search or tap the map instead.");
+        return;
+      }
+      mapRef.current?.setYou(at, p.coords.accuracy);
+      setPin(at);
+      mapRef.current?.setPin(at, true);
+      if (p.coords.accuracy > 150) setNotice(`Your location is only accurate to about ${Math.round(p.coords.accuracy / 10) * 10} m. Tap the map to move the pin.`);
+    };
+    const failed = (e: GeolocationPositionError, retried: boolean) => {
+      // GPS can be slow indoors; try once more with network location before giving up.
+      if (e.code === e.TIMEOUT && !retried) {
+        navigator.geolocation.getCurrentPosition(found, (e2) => failed(e2, true), { enableHighAccuracy: false, timeout: 15000, maximumAge: 120000 });
+        return;
+      }
+      setLocating(false);
+      setNotice(e.code === e.PERMISSION_DENIED ? deniedHelp() : "Couldn't find your location. Search or tap the map instead.");
+    };
+    navigator.geolocation.getCurrentPosition(found, (e) => failed(e, false), { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+  }, []);
+
+  const center = useCallback((): [number, number] => {
+    const c = mapRef.current?.map.getCenter();
+    return c ? [c.lng, c.lat] : [-79.9495, 40.4435];
   }, []);
 
   const goTo = useCallback((at: [number, number]) => {
+    setNotice("");
     setPin(at);
     mapRef.current?.setPin(at, true);
+  }, []);
+
+  // Choosing a result on a phone lowers the sheet so the route shows.
+  const pick = useCallback((o: Option | null) => {
+    setSelected(o);
+    if (o && innerWidth < 720) setSheet("half");
   }, []);
 
   const loading = !data || !mapReady;
@@ -281,15 +321,27 @@ export function App() {
 
       {whenOpen && <When win={win} onChange={changeWin} onClose={() => setWhenOpen(false)} who={who} onWho={changeWho} />}
 
-      <aside class={`ps-sheet${sheetOpen ? " ps-sheet-open" : ""}`} aria-label="Parking near the pin">
-        <button class="ps-handle" aria-label={sheetOpen ? "Collapse" : "Expand"} onClick={() => setSheetOpen((o) => !o)}>
-          <i />
+      <Sheet state={sheet} onState={setSheet}>
+        <Search data={data} center={center} onPick={goTo} onLocate={locate} locating={locating} onFocus={() => setSheet("full")} />
+        <button class="ps-private" onClick={() => setPrivacyOpen(true)}>
+          <Lock />
+          Private: your location and searches stay on this device
         </button>
-        <Search onPick={goTo} onLocate={locate} />
+        {notice && (
+          <p class="ps-notice" role="status">
+            {notice}
+            <button aria-label="Dismiss" onClick={() => setNotice("")}>×</button>
+          </p>
+        )}
         {!pin ? (
           <div class="ps-empty">
             <h1>Where are you headed?</h1>
             <p>Tap the map where you're going. You'll get the closest free parking by walking time, hills included, plus what the meters and garages nearby would cost for your hours.</p>
+            <button class="ps-near" onClick={locate} disabled={locating}>
+              <Crosshair />
+              {locating ? "Finding you…" : "Find parking near me"}
+            </button>
+            <p class="ps-quiet ps-optional">Location is optional and only used when you tap that. It stays on this device.</p>
             <div class="ps-chips">
               {PLACES.map((p) => (
                 <button key={p.name} class="ph-pill" onClick={() => goTo(p.at)}>
@@ -306,20 +358,20 @@ export function App() {
         ) : (
           <div class="ps-results">
             {times && times.snapMeters > 150 && <p class="ps-warn">That pin is {Math.round(times.snapMeters)} m from the nearest sidewalk, so walk times are rough.</p>}
-            {show.has("free") && <Group title="Free" options={results.free} selected={selected} onSelect={setSelected} empty="Nothing free within a 25-minute walk for these hours." route={route} data={data!} />}
-            {show.has("paid") && <Group title="Paid" options={results.paid} selected={selected} onSelect={setSelected} empty="No meters or paid lots nearby." route={route} data={data!} />}
+            {show.has("free") && <Group title="Free" options={results.free} selected={selected} onSelect={pick} empty="Nothing free within a 25-minute walk for these hours." route={route} data={data!} />}
+            {show.has("paid") && <Group title="Paid" options={results.paid} selected={selected} onSelect={pick} empty="No meters or paid lots nearby." route={route} data={data!} />}
             {!show.has("free") && !show.has("paid") && !results.misfit.length && <p class="ps-quiet ps-foot">Free and paid are filtered out. Click them in the key to bring them back.</p>}
             {results.misfit.length > 0 && (
               <button class="ps-more" onClick={() => setShowMisfit((s) => !s)}>
                 {showMisfit ? "Hide" : "Show"} {results.misfit.length} nearby that won't work for these hours
               </button>
             )}
-            {showMisfit && <Group title="Won't work" options={results.misfit} selected={selected} onSelect={setSelected} route={route} data={data!} />}
+            {showMisfit && <Group title="Won't work" options={results.misfit} selected={selected} onSelect={pick} route={route} data={data!} />}
             {results.unknown > 0 && <p class="ps-quiet ps-foot">{results.unknown} nearby blocks are main roads with no parking data. They're drawn in gray.</p>}
           </div>
         )}
-        {data && <Sources data={data} />}
-      </aside>
+        {data && <Sources data={data} onPrivacy={() => setPrivacyOpen(true)} />}
+      </Sheet>
 
       <div class="ps-legend" role="group" aria-label="Key. Click to show or hide; double-click to show only one.">
         {LEGEND.map(([k, label]) => (
@@ -342,6 +394,7 @@ export function App() {
       </div>
 
       {touring && <Tour onClose={() => setTouring(false)} />}
+      {privacyOpen && <Privacy onClose={() => setPrivacyOpen(false)} />}
 
       {hover && (
         <div class="ps-tip" style={{ left: `${hover.x + 14}px`, top: `${hover.y + 14}px` }}>
@@ -362,7 +415,122 @@ export function App() {
 
 function framePadding() {
   const narrow = innerWidth < 720;
-  return narrow ? { top: 80, right: 40, bottom: innerHeight * 0.55, left: 40 } : { top: 90, right: 420, bottom: 60, left: 60 };
+  return narrow ? { top: 110, right: 40, bottom: innerHeight * 0.56, left: 40 } : { top: 90, right: 420, bottom: 60, left: 60 };
+}
+
+const inPittsburgh = ([lon, lat]: [number, number]) => lon > -80.105 && lon < -79.855 && lat > 40.355 && lat < 40.505;
+
+/** How to turn location back on, for the browser in hand. */
+function deniedHelp() {
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod/.test(ua)) return "Location is off for this site. On iPhone: Settings › Privacy & Security › Location Services › Safari Websites › While Using the App, then try again.";
+  if (/Android/.test(ua)) return "Location is off for this site. Tap the icon left of the address bar › Permissions › Location › Allow, then try again.";
+  return "Location is off for this site. Allow it from the icon left of the address bar, then try again.";
+}
+
+// --- the sheet: a side panel on wide screens, a bottom sheet you can drag on phones ---------------
+
+type Sheet = "peek" | "half" | "full";
+const SNAPS: Sheet[] = ["peek", "half", "full"];
+
+function Sheet({ state, onState, children }: { state: Sheet; onState: (s: Sheet) => void; children: preact.ComponentChildren }) {
+  const ref = useRef<HTMLElement>(null);
+  const drag = useRef<{ y: number; base: number; t: number } | null>(null);
+  const [dy, setDy] = useState<number | null>(null);
+
+  // Where each snap leaves the sheet's top edge, as an offset from fully open.
+  const offsets = () => {
+    const h = ref.current?.offsetHeight ?? innerHeight;
+    return { full: 0, half: Math.max(0, h - innerHeight * 0.5), peek: Math.max(0, h - 176) } as Record<Sheet, number>;
+  };
+  const start = (e: PointerEvent) => {
+    if (innerWidth >= 720) return;
+    drag.current = { y: e.clientY, base: offsets()[state], t: performance.now() };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const move = (e: PointerEvent) => {
+    const d = drag.current;
+    if (d) setDy(Math.max(0, d.base + e.clientY - d.y));
+  };
+  const end = (e: PointerEvent) => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d) return;
+    const moved = e.clientY - d.y;
+    setDy(null);
+    if (Math.abs(moved) < 6) {
+      // A tap on the handle steps up, or drops back from the top.
+      onState(state === "full" ? "half" : state === "half" ? "full" : "half");
+      return;
+    }
+    const at = d.base + moved;
+    const fling = moved / Math.max(1, performance.now() - d.t); // px per ms
+    const o = offsets();
+    let next = SNAPS.reduce((a, b) => (Math.abs(o[b] - at) < Math.abs(o[a] - at) ? b : a));
+    if (fling > 0.6) next = SNAPS[Math.max(0, SNAPS.indexOf(state) - 1)];
+    if (fling < -0.6) next = SNAPS[Math.min(2, SNAPS.indexOf(state) + 1)];
+    onState(next);
+  };
+  return (
+    <aside
+      ref={ref}
+      class={`ps-sheet ps-sheet-${state}${dy != null ? " ps-dragging" : ""}`}
+      style={dy != null ? { transform: `translateY(${dy}px)` } : undefined}
+      aria-label="Parking near the pin"
+    >
+      <div class="ps-grab" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
+        <button class="ps-handle" aria-label={state === "full" ? "Lower the panel" : "Raise the panel"} onClick={(e) => e.preventDefault()}>
+          <i />
+        </button>
+      </div>
+      {children}
+    </aside>
+  );
+}
+
+function Lock() {
+  return (
+    <svg viewBox="0 0 12 14" aria-hidden="true" class="ps-lock">
+      <rect x="1.5" y="6" width="9" height="7" rx="1.5" />
+      <path d="M3.5 6V4.5a2.5 2.5 0 0 1 5 0V6" />
+    </svg>
+  );
+}
+
+function Crosshair() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="8" cy="8" r="4.5" />
+      <path d="M8 0.5v3M8 12.5v3M0.5 8h3M12.5 8h3" />
+    </svg>
+  );
+}
+
+function Privacy({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div class="ps-modal" role="dialog" aria-modal="true" aria-labelledby="ps-privacy-title" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div class="ps-modal-card">
+        <h2 id="ps-privacy-title">
+          <Lock /> Private by design
+        </h2>
+        <ul>
+          <li><b>Your location stays on your device.</b> Walk times are worked out right here, and the page has nowhere to send your position.</li>
+          <li><b>Search happens on your device too.</b> It looks through streets and places the page already has; what you type never goes anywhere.</li>
+          <li><b>No accounts, no cookies, no analytics, no ads.</b></li>
+          <li><b>No other companies.</b> The map, fonts and data all come from this site, and the page's security policy stops the browser from contacting anyone else. Links to sources open the source's own site only when you tap them.</li>
+          <li><b>What's kept:</b> your key filters and the CMU ID switch, saved in this browser only. Your pin and hours sit in the page's address after the #, which browsers never send to the server. Share the link only if you want to share the spot.</li>
+          <li><b>What this site's host sees:</b> like any website, the files you load. Map pieces load for the area on screen, so the host could tell roughly which part of Pittsburgh is being viewed, but not who you are or where you are.</li>
+        </ul>
+        <p class="ps-quiet">The code is open: <a href="https://github.com/manorajesh/pittstop" target="_blank" rel="noreferrer">github.com/manorajesh/pittstop</a></p>
+        <button class="ph-pill ph-pill-active" onClick={onClose} autoFocus>Got it</button>
+      </div>
+    </div>
+  );
 }
 
 // --- pieces --------------------------------------------------------------------------------------
@@ -474,51 +642,57 @@ function Group({ title, options, selected, onSelect, empty, route, data }: {
   );
 }
 
-function Search({ onPick, onLocate }: { onPick: (at: [number, number]) => void; onLocate: () => void }) {
+function Search({ data, center, onPick, onLocate, locating, onFocus }: {
+  data: Data | null;
+  center: () => [number, number];
+  onPick: (at: [number, number]) => void;
+  onLocate: () => void;
+  locating: boolean;
+  onFocus: () => void;
+}) {
   const [q, setQ] = useState("");
-  const [hits, setHits] = useState<{ name: string; sub: string; at: [number, number] }[]>([]);
-  useEffect(() => {
-    if (q.trim().length < 3) return setHits([]);
-    const ctl = new AbortController();
-    const t = setTimeout(() => {
-      const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&bbox=-80.1,40.36,-79.86,40.5&lat=40.444&lon=-79.95&limit=5&lang=en`;
-      fetch(url, { signal: ctl.signal })
-        .then((r) => r.json())
-        .then((d) =>
-          setHits(
-            d.features.map((f: any) => ({
-              name: f.properties.name || [f.properties.housenumber, f.properties.street].filter(Boolean).join(" "),
-              sub: [f.properties.street && f.properties.name ? f.properties.street : "", f.properties.district || f.properties.city].filter(Boolean).join(", "),
-              at: f.geometry.coordinates,
-            }))
-          )
-        )
-        .catch(() => {});
-    }, 250);
-    return () => {
-      clearTimeout(t);
-      ctl.abort();
-    };
-  }, [q]);
+  const [places, setPlaces] = useState<[string, string, number, number][] | null>(null);
+  // Places are fetched once, from this site, the first time the field is used.
+  const wake = () => {
+    onFocus();
+    if (places) return;
+    setPlaces([]);
+    fetch(import.meta.env.BASE_URL + "data/places.json").then((r) => r.json()).then(setPlaces).catch(() => {});
+  };
+  const index = useMemo(() => (data ? buildIndex(data, places ?? []) : []), [data, places]);
+  const hits: Hit[] = useMemo(() => (q.trim().length >= 2 ? search(index, q, center()) : []), [index, q]);
+  const choose = (h: Hit) => {
+    onPick(h.at);
+    setQ("");
+    (document.activeElement as HTMLElement | null)?.blur();
+  };
   return (
     <div class="ps-search">
-      <input type="search" placeholder="Search a place in Pittsburgh" value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} aria-label="Search a place" />
-      <button class="ps-locate" onClick={onLocate} aria-label="Use my location" title="Use my location">
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <circle cx="8" cy="8" r="4.5" />
-          <path d="M8 0.5v3M8 12.5v3M0.5 8h3M12.5 8h3" />
-        </svg>
+      <input
+        type="search"
+        enterKeyHint="search"
+        autoComplete="off"
+        placeholder="Street, corner or place"
+        value={q}
+        onFocus={wake}
+        onInput={(e) => setQ((e.target as HTMLInputElement).value)}
+        onKeyDown={(e) => e.key === "Enter" && hits[0] && choose(hits[0])}
+        aria-label="Search Pittsburgh streets, corners and places"
+      />
+      <button class={`ps-locate${locating ? " ps-locating" : ""}`} onClick={onLocate} aria-label="Use my location" title="Use my location" disabled={locating}>
+        <Crosshair />
       </button>
-      {hits.length > 0 && (
+      {q.trim().length >= 2 && (
         <ul class="ps-hits">
-          {hits.map((h, i) => (
-            <li key={i}>
-              <button onClick={() => { onPick(h.at); setQ(""); setHits([]); }}>
+          {hits.map((h) => (
+            <li key={h.name + h.sub}>
+              <button onClick={() => choose(h)}>
                 {h.name}
                 <span>{h.sub}</span>
               </button>
             </li>
           ))}
+          {!hits.length && <li class="ps-nohit">No match. Try a street, a corner like “Forbes & Craig”, or a place.</li>}
         </ul>
       )}
     </div>
@@ -540,7 +714,7 @@ function Cite({ list }: { list: { name: string; url: string; checked?: string }[
   );
 }
 
-function Sources({ data }: { data: Data }) {
+function Sources({ data, onPrivacy }: { data: Data; onPrivacy: () => void }) {
   return (
     <footer class="ps-sources">
       <p>Signs on the street win. This map reads city and OpenStreetMap records, which miss street cleaning, loading zones, and new signs.</p>
@@ -555,7 +729,10 @@ function Sources({ data }: { data: Data }) {
           </span>
         ))}
         {" · "}
-        <a href="https://openfreemap.org" target="_blank" rel="noreferrer">OpenFreeMap</a>
+        <a href="https://protomaps.com" target="_blank" rel="noreferrer">Protomaps</a> basemap
+      </p>
+      <p>
+        <button class="ps-linkish" onClick={onPrivacy}>Privacy</button> · <a href="https://github.com/manorajesh/pittstop" target="_blank" rel="noreferrer">Source code</a>
       </p>
     </footer>
   );

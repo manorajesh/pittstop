@@ -31,6 +31,7 @@ setWorkerUrl(new URL(workerUrl, location.href).href);
 export class ParkingMap {
   map: MLMap;
   private marker: Marker | null = null;
+  private you: Marker | null = null;
   private data: Data | null = null;
   private verdicts: Verdict[] = [];
 
@@ -49,7 +50,13 @@ export class ParkingMap {
       fadeDuration: 0,
     });
     this.map.touchZoomRotate.disableRotation();
-    this.map.on("click", (e) => this.on.pin(e.lngLat.lng, e.lngLat.lat));
+    // A double-tap zooms; wait a beat so its first tap doesn't also move the pin.
+    let tap = 0;
+    this.map.on("click", (e) => {
+      clearTimeout(tap);
+      tap = window.setTimeout(() => this.on.pin(e.lngLat.lng, e.lngLat.lat), 260);
+    });
+    this.map.on("dblclick", () => clearTimeout(tap));
     this.map.on("load", () => this.on.ready());
     this.map.on("mousemove", (e) => {
       if (!this.data) return;
@@ -151,6 +158,25 @@ export class ParkingMap {
     }
     this.marker.setLngLat(lonlat).addTo(this.map);
     if (fly) this.map.easeTo({ center: lonlat, zoom: Math.max(this.map.getZoom(), 15.5), duration: 700 });
+  }
+
+  /** Where the viewer is, from the device; drawn here and nowhere else. */
+  setYou(lonlat: [number, number] | null, accuracy = 0) {
+    if (!lonlat) {
+      this.you?.remove();
+      this.you = null;
+      return;
+    }
+    if (!this.you) {
+      const el = document.createElement("div");
+      el.className = "ps-you";
+      el.innerHTML = "<i></i>";
+      this.you = new Marker({ element: el });
+    }
+    // The halo grows with the device's uncertainty, in pixels at this zoom.
+    const mpp = (156543.03 * Math.cos((lonlat[1] * Math.PI) / 180)) / 2 ** this.map.getZoom();
+    this.you.getElement().style.setProperty("--acc", `${Math.min(120, Math.max(14, (2 * accuracy) / mpp))}px`);
+    this.you.setLngLat(lonlat).addTo(this.map);
   }
 
   setRoute(coords: [number, number][] | null) {

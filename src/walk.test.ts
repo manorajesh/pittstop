@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { decode, dijkstra, edgeTime, Graph, project, route, snap } from "./walk";
 
@@ -76,7 +77,7 @@ describe("walk", () => {
   it("decodes the real network", () => {
     let buf: Buffer;
     try {
-      buf = readFileSync(new URL("../public/data/walk.bin", import.meta.url));
+      buf = gunzipSync(readFileSync(new URL("../public/data/walk.bin.gz", import.meta.url)));
     } catch {
       return; // not built yet
     }

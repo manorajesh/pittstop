@@ -1,3 +1,7 @@
+/* Self-hosted, so loading the page asks nothing of Google. */
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 400 600; font-display: swap; src: url(/fonts/inter-latin.woff2) format("woff2"); }
+@font-face { font-family: "Libre Baskerville"; font-style: italic; font-weight: 400; font-display: swap; src: url(/fonts/libre-baskerville-italic-latin.woff) format("woff"); }
+
 /* Chrome from mano.raje.sh's ph-* boxes and pills (src/index.css), in city-steps' dark palette,
    copied rather than imported so this page stands on its own. */
 
@@ -12,7 +16,8 @@
   --sheet: 380px;
   position: fixed;
   inset: 0;
-  overflow: hidden;
+  /* clip, not hidden: nothing (focus, scrollIntoView) can scroll the page itself. */
+  overflow: clip;
   color: var(--ph-ink);
   background: var(--ph-bg);
   font-family: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -145,18 +150,32 @@ html, body { margin: 0; background: #0b0b0b; }
 @media (max-width: 719px) {
   .ps-root { --sheet: 0px; }
   .ph-top { right: 12px; }
-  .ph-box { min-width: 0; height: 40px; flex: none; }
+  .ph-box { min-width: 0; height: 44px; flex: none; }
   .ph-top .ph-box:not(.ph-brand) { flex: 1; overflow: hidden; }
-  .ps-when { right: 12px; width: auto; top: calc(max(12px, env(safe-area-inset-top)) + 46px); }
-  .ps-sheet { top: auto; right: 0; bottom: 0; left: 0; width: auto; height: 44vh; max-height: calc(100% - 70px); border-width: 1px 0 0; border-radius: 12px 12px 0 0;
-    padding-bottom: env(safe-area-inset-bottom); transform: translateY(calc(100% - 190px)); transition: transform .5s var(--ph-ease), height .5s var(--ph-ease); }
-  .ps-sheet-open { height: 62vh; transform: none; }
-  .ps-handle { display: grid; height: 18px; flex: none; place-items: center; border: 0; background: none; cursor: pointer; }
-  .ps-handle i { width: 34px; height: 3px; border-radius: 2px; background: #3a3a3a; }
-  .ps-search { padding-top: 2px; }
-  .ps-empty { padding: 18px 18px 6px; }
+  .ps-when { right: 12px; width: auto; top: calc(max(12px, env(safe-area-inset-top)) + 50px); max-height: calc(100% - 140px); overflow-y: auto; }
+  /* The sheet is always full height and slides: peek shows the search and a line, half the list, full everything. */
+  .ps-sheet { top: calc(max(12px, env(safe-area-inset-top)) + 56px); right: 0; bottom: 0; left: 0; width: auto; border-width: 1px 0 0; border-radius: 14px 14px 0 0;
+    padding-bottom: env(safe-area-inset-bottom); transition: transform .45s var(--ph-ease); touch-action: pan-y; }
+  .ps-sheet-full { transform: none; }
+  .ps-sheet-half { transform: translateY(calc(100% - 50dvh)); }
+  .ps-sheet-peek { transform: translateY(calc(100% - 176px - env(safe-area-inset-bottom))); }
+  .ps-dragging { transition: none; }
+  .ps-grab { flex: none; touch-action: none; cursor: grab; }
+  .ps-handle { display: grid; width: 100%; height: 24px; place-items: center; border: 0; background: none; cursor: grab; }
+  .ps-handle i { width: 38px; height: 4px; border-radius: 2px; background: #3a3a3a; }
+  .ps-search { padding-top: 0; }
+  /* 16px keeps iOS from zooming into the field. */
+  .ps-search input, .ps-when input { height: 44px; font-size: 16px; }
+  .ps-locate { width: 44px; height: 44px; }
+  .ps-empty { padding: 16px 18px 6px; }
   .ps-empty h1 { font-size: 22px; }
-  .ps-legend { top: calc(max(12px, env(safe-area-inset-top)) + 48px); bottom: auto; right: 12px; max-width: none; padding: 7px 10px; gap: 3px 10px; font-size: 8px; }
+  .ps-row { padding: 12px 18px; }
+  .ps-group li > .ps-detail { padding: 0 18px 14px 68px; }
+  .ph-pill { height: 34px; padding: 0 14px; font-size: 10px; }
+  /* The key becomes one scrollable row of chips under the top bar. */
+  .ps-legend { top: calc(max(12px, env(safe-area-inset-top)) + 52px); bottom: auto; right: 0; left: 0; max-width: none; flex-wrap: nowrap; overflow-x: auto; gap: 6px; padding: 0 12px;
+    border: 0; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; scrollbar-width: none; }
+  .ps-legend::-webkit-scrollbar { display: none; }
   .ps-tip { display: none; }
 }
 
@@ -196,7 +215,44 @@ html, body { margin: 0; background: #0b0b0b; }
 .ps-cite a:hover { color: var(--gold); text-decoration-color: var(--gold); }
 
 @media (max-width: 719px) {
-  .ps-help { min-width: 40px; }
+  .ph-top .ps-help { flex: none; width: 44px; min-width: 44px; }
   .ps-key-note { display: none; }
   .ps-when-label { display: none; }
+  .ps-legend button { flex: none; height: 32px; padding: 0 11px; border: 1px solid var(--ph-line); border-radius: 999px; background: var(--ph-glass); font-size: 9px;
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+  .ps-legend .ps-off { text-decoration: none; }
 }
+
+/* --- privacy, location, notices -------------------------------------------------------------- */
+.ps-private { display: flex; align-items: center; gap: 7px; margin: 8px 12px 0; padding: 6px 2px; border: 0; background: none; color: #8d8d8d; font-size: 11px; text-align: left; cursor: pointer; }
+.ps-private:hover { color: var(--ph-ink); }
+.ps-lock { width: 11px; height: 13px; flex: none; fill: none; stroke: var(--gold); stroke-width: 1.3; }
+.ps-notice { position: relative; margin: 8px 12px 0; padding: 10px 34px 10px 12px; border: 1px solid rgba(255, 182, 18, .18); border-radius: 4px; background: rgba(255, 182, 18, .06);
+  color: #d9c08a; font-size: 12px; line-height: 1.5; animation: ps-rise .35s var(--ph-ease) both; }
+.ps-notice button { position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; border: 0; background: none; color: #9a8a66; font-size: 18px; cursor: pointer; }
+.ps-near { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 0 16px; height: 44px; border: 1px solid rgba(255, 182, 18, .35); border-radius: 999px;
+  background: rgba(255, 182, 18, .08); color: var(--gold) !important; font-size: 13px; font-weight: 500; cursor: pointer; transition: background .2s ease; }
+.ps-near:hover { background: rgba(255, 182, 18, .14); }
+.ps-near:disabled { opacity: .7; cursor: progress; }
+.ps-near svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.4; }
+.ps-locating svg { animation: ps-spin 1.4s linear infinite; stroke: var(--gold); }
+@keyframes ps-spin { to { transform: rotate(360deg); } }
+.ps-nohit { padding: 9px 10px; color: var(--ph-dim); font-size: 12px; line-height: 1.5; }
+.ps-linkish { padding: 0; border: 0; background: none; color: #6a6a6a; font: inherit; text-decoration: underline; text-decoration-color: #2c2c2c; text-underline-offset: 2px; cursor: pointer; }
+.ps-linkish:hover { color: var(--ph-ink); }
+
+.ps-you { width: var(--acc, 14px); height: var(--acc, 14px); border-radius: 50%; background: rgba(120, 170, 255, .12); box-shadow: inset 0 0 0 1px rgba(120, 170, 255, .3); pointer-events: none; }
+.ps-you i { position: absolute; top: 50%; left: 50%; width: 12px; height: 12px; border: 2px solid #0b0b0b; border-radius: 50%; background: #78aaff; transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 0 rgba(120, 170, 255, .5); animation: ps-ping 2.4s ease-out infinite; }
+@keyframes ps-ping { 70% { box-shadow: 0 0 0 10px rgba(120, 170, 255, 0); } 100% { box-shadow: 0 0 0 0 rgba(120, 170, 255, 0); } }
+
+.ps-modal { position: absolute; inset: 0; z-index: 12; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, .6); animation: ps-rise .3s ease both; }
+.ps-modal-card { display: grid; gap: 12px; width: min(460px, 100%); max-height: calc(100% - 32px); overflow-y: auto; padding: 20px 22px 18px; border: 1px solid var(--ph-line); border-radius: 6px;
+  background: #111; box-shadow: 0 30px 60px -30px #000; }
+.ps-modal-card h2 { display: flex; align-items: center; gap: 10px; margin: 0; font-family: "Libre Baskerville", Georgia, serif; font-size: 21px; font-style: italic; font-weight: 400; }
+.ps-modal-card h2 .ps-lock { width: 14px; height: 16px; }
+.ps-modal-card ul { display: grid; gap: 10px; margin: 0; padding: 0 0 0 16px; color: #a8a8a8; font-size: 12.5px; line-height: 1.6; }
+.ps-modal-card b { color: var(--ph-ink); font-weight: 500; }
+.ps-modal-card a { color: var(--ph-ink); text-decoration: underline; text-decoration-color: #444; text-underline-offset: 3px; }
+.ps-modal-card > .ph-pill { justify-self: end; }
+.ps-empty .ps-optional { margin: -6px 0 16px; font-size: 11px; }
