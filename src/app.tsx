@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { Data, load, Option, rank, Results, verdictsFor } from "./data";
+import { Data, load, Option, rank, Results, sourcesFor, verdictsFor } from "./data";
 import { COLORS, ParkingMap } from "./map";
-import { clock, describe, fromLocal, MAX_WINDOW_MIN, money, toLocal, Verdict, Window } from "./rules";
+import { clock, describe, fromLocal, MAX_WINDOW_MIN, money, Status, toLocal, Verdict, Who, Window } from "./rules";
+import { Tour } from "./tour";
 import type { Route } from "./walk";
 
 // Pitt stop: drop a pin, say when, and see where to leave the car. Chrome follows the site's ph-*
@@ -14,7 +15,7 @@ const PLACES: { name: string; at: [number, number] }[] = [
   { name: "UPMC Presby", at: [-79.9608, 40.4419] },
 ];
 const DURATIONS = [1, 2, 4, 8];
-const LEGEND: [keyof typeof COLORS, string][] = [
+const LEGEND: [Status, string][] = [
   ["free", "Free"],
   ["paid", "Paid"],
   ["limit", "Time limit too short"],
@@ -44,6 +45,24 @@ function writeHash(pin: [number, number] | null, win: Window, custom: boolean) {
   }
   const s = h.toString().replace(/%2C/g, ",").replace(/%3A/g, ":");
   history.replaceState(null, "", s ? `#${s}` : location.pathname + location.search);
+}
+
+// Per-viewer conveniences; the page works the same without storage.
+const SHOW_KEY = "pittstop:show";
+const CMU_KEY = "pittstop:cmu";
+const ALL: Status[] = ["free", "paid", "limit", "no", "unknown"];
+function stored<T>(key: string, fallback: T): T {
+  try {
+    const v = localStorage.getItem(key);
+    return v == null ? fallback : JSON.parse(v);
+  } catch {
+    return fallback;
+  }
+}
+function store(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
 }
 
 function soon(): Window {
@@ -107,6 +126,31 @@ export function App() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [showMisfit, setShowMisfit] = useState(false);
   const [hover, setHover] = useState<{ name: string; verdict: Verdict; x: number; y: number } | null>(null);
+  const [show, setShow] = useState<Set<Status>>(() => new Set(stored<Status[]>(SHOW_KEY, ALL).filter((s) => ALL.includes(s))));
+  const [who, setWho] = useState<Who>(() => ({ cmu: stored(CMU_KEY, false) }));
+  const [touring, setTouring] = useState(false);
+
+  // A legend key toggles its status; with everything off, clicking one shows just that one again.
+  const toggle = useCallback((k: Status) => {
+    setShow((cur) => {
+      const next = new Set(cur);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      store(SHOW_KEY, [...next]);
+      return next;
+    });
+  }, []);
+  const only = useCallback((k: Status) => {
+    setShow((cur) => {
+      const next = cur.size === 1 && cur.has(k) ? new Set(ALL) : new Set([k]);
+      store(SHOW_KEY, [...next]);
+      return next;
+    });
+  }, []);
+  const changeWho = useCallback((w: Who) => {
+    setWho(w);
+    store(CMU_KEY, w.cmu);
+  }, []);
 
   useEffect(() => {
     const title = document.title;
@@ -136,10 +180,10 @@ export function App() {
     idle(() => walker.load(import.meta.env.BASE_URL + "data/walk.bin").catch((e: Error) => setError(e.message)));
   }, [mapReady, data, walker]);
 
-  const verdicts = useMemo(() => (data ? verdictsFor(data, win) : []), [data, win]);
+  const verdicts = useMemo(() => (data ? verdictsFor(data, win, who) : []), [data, win, who]);
   useEffect(() => {
-    if (mapReady && data) mapRef.current!.setVerdicts(verdicts);
-  }, [verdicts, mapReady, data]);
+    if (mapReady && data) mapRef.current!.setVerdicts(verdicts, show);
+  }, [verdicts, show, mapReady, data]);
 
   useEffect(() => writeHash(pin, win, customWin), [pin, win, customWin]);
 
@@ -163,7 +207,7 @@ export function App() {
     };
   }, [pin, walker]);
 
-  const results: Results | null = useMemo(() => (data && times ? rank(data, verdicts, times.time) : null), [data, verdicts, times]);
+  const results: Results | null = useMemo(() => (data && times ? rank(data, verdicts, times.time, show) : null), [data, verdicts, times, show]);
 
   // Keep the selection in step with a changed window.
   useEffect(() => {
@@ -226,13 +270,16 @@ export function App() {
         <a class="ph-box ph-brand" href={import.meta.env.BASE_URL} onClick={(e) => { e.preventDefault(); setPin(null); }}>
           <span class="ps-gold">pitt</span>stop
         </a>
-        <button class={`ph-box${whenOpen ? " ph-box-active" : ""}`} aria-expanded={whenOpen} onClick={() => setWhenOpen((o) => !o)}>
+        <button class={`ph-box ps-when-box${whenOpen ? " ph-box-active" : ""}`} aria-expanded={whenOpen} onClick={() => setWhenOpen((o) => !o)}>
           <span class="ps-when-label">When</span>
           <b>{windowText(win)}</b>
         </button>
+        <button class="ph-box ps-help" aria-label="How this works" title="How this works" onClick={() => { setWhenOpen(false); setTouring(true); }}>
+          ?
+        </button>
       </nav>
 
-      {whenOpen && <When win={win} onChange={changeWin} onClose={() => setWhenOpen(false)} />}
+      {whenOpen && <When win={win} onChange={changeWin} onClose={() => setWhenOpen(false)} who={who} onWho={changeWho} />}
 
       <aside class={`ps-sheet${sheetOpen ? " ps-sheet-open" : ""}`} aria-label="Parking near the pin">
         <button class="ps-handle" aria-label={sheetOpen ? "Collapse" : "Expand"} onClick={() => setSheetOpen((o) => !o)}>
@@ -250,6 +297,7 @@ export function App() {
                 </button>
               ))}
             </div>
+            <button class="ps-more ps-tour-link" onClick={() => setTouring(true)}>New here? Take the two-minute tour</button>
           </div>
         ) : !results ? (
           <div class="ps-empty">
@@ -258,35 +306,45 @@ export function App() {
         ) : (
           <div class="ps-results">
             {times && times.snapMeters > 150 && <p class="ps-warn">That pin is {Math.round(times.snapMeters)} m from the nearest sidewalk, so walk times are rough.</p>}
-            <Group title="Free" options={results.free} selected={selected} onSelect={setSelected} empty="Nothing free within a 25-minute walk for these hours." route={route} />
-            <Group title="Paid" options={results.paid} selected={selected} onSelect={setSelected} empty="No meters or paid lots nearby." route={route} />
+            {show.has("free") && <Group title="Free" options={results.free} selected={selected} onSelect={setSelected} empty="Nothing free within a 25-minute walk for these hours." route={route} data={data!} />}
+            {show.has("paid") && <Group title="Paid" options={results.paid} selected={selected} onSelect={setSelected} empty="No meters or paid lots nearby." route={route} data={data!} />}
+            {!show.has("free") && !show.has("paid") && !results.misfit.length && <p class="ps-quiet ps-foot">Free and paid are filtered out. Click them in the key to bring them back.</p>}
             {results.misfit.length > 0 && (
               <button class="ps-more" onClick={() => setShowMisfit((s) => !s)}>
                 {showMisfit ? "Hide" : "Show"} {results.misfit.length} nearby that won't work for these hours
               </button>
             )}
-            {showMisfit && <Group title="Won't work" options={results.misfit} selected={selected} onSelect={setSelected} route={route} />}
+            {showMisfit && <Group title="Won't work" options={results.misfit} selected={selected} onSelect={setSelected} route={route} data={data!} />}
             {results.unknown > 0 && <p class="ps-quiet ps-foot">{results.unknown} nearby blocks are main roads with no parking data. They're drawn in gray.</p>}
           </div>
         )}
         {data && <Sources data={data} />}
       </aside>
 
-      <div class="ps-legend" aria-label="Legend">
+      <div class="ps-legend" role="group" aria-label="Key. Click to show or hide; double-click to show only one.">
         {LEGEND.map(([k, label]) => (
-          <span key={k}>
+          <button
+            key={k}
+            class={show.has(k) ? "" : "ps-off"}
+            aria-pressed={show.has(k)}
+            title={`${show.has(k) ? "Hide" : "Show"} ${label.toLowerCase()} · double-click for only this`}
+            onClick={() => toggle(k)}
+            onDblClick={() => only(k)}
+          >
             <i style={{ background: COLORS[k] }} />
             {label}
-          </span>
+          </button>
         ))}
-        <span>
+        <span class="ps-key-note">
           <i class="ps-dash" />
           Permit zone
         </span>
       </div>
 
+      {touring && <Tour onClose={() => setTouring(false)} />}
+
       {hover && (
-        <div class="ps-tip" style={{ left: hover.x + 14, top: hover.y + 14 }}>
+        <div class="ps-tip" style={{ left: `${hover.x + 14}px`, top: `${hover.y + 14}px` }}>
           <b>{hover.name}</b>
           <span style={{ color: COLORS[hover.verdict.status] }}>{statusText(hover.verdict)}</span>
           <em>{hover.verdict.note}</em>
@@ -309,7 +367,7 @@ function framePadding() {
 
 // --- pieces --------------------------------------------------------------------------------------
 
-function When({ win, onChange, onClose }: { win: Window; onChange: (w: Window) => void; onClose: () => void }) {
+function When({ win, onChange, onClose, who, onWho }: { win: Window; onChange: (w: Window) => void; onClose: () => void; who: Who; onWho: (w: Who) => void }) {
   const hours = (win.to - win.from) / 3600000;
   const tooLong = win.to - win.from > MAX_WINDOW_MIN * 60000;
   const set = (from: number, to: number) => onChange({ from, to: Math.max(to, from + 15 * 60000) });
@@ -352,18 +410,26 @@ function When({ win, onChange, onClose }: { win: Window; onChange: (w: Window) =
         </button>
       </div>
       {tooLong && <p class="ps-warn">Windows longer than a week are checked for their first seven days.</p>}
+      <label class="ps-switch">
+        <input type="checkbox" checked={who.cmu} onChange={(e) => onWho({ cmu: (e.target as HTMLInputElement).checked })} />
+        <span>
+          I have a CMU ID
+          <small>Uses CMU's affiliate rates at the East Campus Garage, free nights and weekends</small>
+        </span>
+      </label>
       <button class="ps-done" onClick={onClose}>Done</button>
     </div>
   );
 }
 
-function Group({ title, options, selected, onSelect, empty, route }: {
+function Group({ title, options, selected, onSelect, empty, route, data }: {
   title: string;
   options: Option[];
   selected: Option | null;
   onSelect: (o: Option | null) => void;
   empty?: string;
   route: Route | null;
+  data: Data;
 }) {
   return (
     <section class="ps-group">
@@ -387,16 +453,19 @@ function Group({ title, options, selected, onSelect, empty, route }: {
                   </b>
                   {o.between && <span>{o.between}</span>}
                   <em>{o.verdict.note}</em>
-                  {on && (
-                    <span class="ps-detail">
-                      {o.schedule && <span>{describe(o.schedule)}</span>}
-                      {o.lot?.h && <span>Hours {o.lot.h}</span>}
-                      {route && <span>{routeText(route)}</span>}
-                    </span>
-                  )}
                 </span>
                 <span class="ps-price">{priceText(o.verdict)}</span>
               </button>
+              {on && (
+                <div class="ps-detail">
+                  {o.schedule && <span>{describe(o.schedule)}</span>}
+                  {o.note && <span>{o.note}</span>}
+                  {o.lot?.a && <span>{o.lot.a}</span>}
+                  {o.lot?.h && <span>Hours {o.lot.h}</span>}
+                  {route && <span>{routeText(route)}</span>}
+                  <Cite list={sourcesFor(data, o)} />
+                </div>
+              )}
             </li>
           );
         })}
@@ -456,10 +525,28 @@ function Search({ onPick, onLocate }: { onPick: (at: [number, number]) => void; 
   );
 }
 
+/** "Check it yourself" links for one place. */
+function Cite({ list }: { list: { name: string; url: string; checked?: string }[] }) {
+  if (!list.length) return null;
+  return (
+    <span class="ps-cite">
+      <span class="ps-label">Check it yourself{list[0].checked ? ` · checked ${list[0].checked}` : ""}</span>
+      {list.map((s) => (
+        <a key={s.url} href={s.url} target="_blank" rel="noreferrer">
+          {s.name} ↗
+        </a>
+      ))}
+    </span>
+  );
+}
+
 function Sources({ data }: { data: Data }) {
   return (
     <footer class="ps-sources">
       <p>Signs on the street win. This map reads city and OpenStreetMap records, which miss street cleaning, loading zones, and new signs.</p>
+      <p>
+        CMU campus: <a href={data.meta.campus.sources.visitor.url} target="_blank" rel="noreferrer">CMU Transportation Services</a> and its campus map, checked {data.meta.campus.checked}.
+      </p>
       <p>
         {data.meta.sources.map((s, i) => (
           <span key={s.url}>

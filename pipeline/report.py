@@ -40,6 +40,17 @@ def main():
         ok = kinds.get(want, 0) > 0
         failed += not ok
         print(f"  {'ok ' if ok else 'BAD'} {label}: {dict(kinds) or 'no blocks within 250 m'}")
+    lots = json.loads((DATA / "lots.json").read_text())["features"]
+    campus = {f["properties"]["n"]: f["properties"] for f in lots if f["properties"]["k"] == "cmu"}
+    for name in ("East Campus Garage", "Gates Garage", "CIC Garage", "Dithridge Street Garage", "Morewood Lot (visitor side)"):
+        ok = name in campus and "po" not in campus[name] and campus[name].get("src")
+        failed += not ok
+        print(f"  {'ok ' if ok else 'BAD'} CMU visitor parking: {name}")
+    campus_streets = Counter(f["properties"]["n"] for f in feats if f["properties"].get("c"))
+    print(f"  CMU meter blocks: {dict(campus_streets)}")
+    near_ecg = [f for f in lots if f["properties"]["k"] != "cmu" and dist(f["geometry"]["coordinates"], (-79.940041, 40.443851)) < 70]
+    failed += bool(near_ecg)
+    print(f"  {'ok ' if not near_ecg else 'BAD'} no OSM duplicate of the East Campus Garage")
     zones = Counter(f["properties"].get("z") for f in feats if f["properties"]["k"] == "p")
     print("permit blocks by zone:", ", ".join(f"{z} {n}" for z, n in zones.most_common(12)))
     return 1 if failed else 0

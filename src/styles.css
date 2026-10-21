@@ -159,3 +159,44 @@ html, body { margin: 0; background: #0b0b0b; }
   .ps-legend { top: calc(max(12px, env(safe-area-inset-top)) + 48px); bottom: auto; right: 12px; max-width: none; padding: 7px 10px; gap: 3px 10px; font-size: 8px; }
   .ps-tip { display: none; }
 }
+
+/* --- key as a filter ------------------------------------------------------------------------- */
+.ps-legend button { display: flex; align-items: center; gap: 7px; padding: 2px 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit;
+  text-transform: inherit; white-space: nowrap; cursor: pointer; transition: color .2s ease, opacity .2s ease; }
+.ps-legend button:hover { color: var(--ph-ink); }
+.ps-legend .ps-off { opacity: .38; text-decoration: line-through; text-decoration-color: #555; }
+.ps-legend .ps-off i { background: transparent !important; box-shadow: inset 0 0 0 1px #555; }
+.ps-key-note { padding-left: 12px; border-left: 1px solid var(--ph-line); color: #6a6a6a; }
+
+/* --- help ------------------------------------------------------------------------------------ */
+.ps-help { min-width: 46px; justify-content: center; padding: 0; font-family: "Libre Baskerville", Georgia, serif; font-size: 16px; font-style: italic; text-transform: none; }
+.ps-tour-link { margin: 18px 0 0; padding: 0; }
+.ps-tour { position: absolute; inset: 0; z-index: 10; }
+.ps-tour-light { position: absolute; border-radius: 7px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .62), 0 0 0 1px rgba(255, 182, 18, .55);
+  transition: left .45s var(--ph-ease), top .45s var(--ph-ease), width .45s var(--ph-ease), height .45s var(--ph-ease); }
+.ps-tour-none { left: 50%; top: 50%; width: 0; height: 0; }
+.ps-tour-card { position: absolute; display: grid; gap: 8px; padding: 16px 18px 14px; border: 1px solid var(--ph-line); border-radius: 5px; background: rgba(16, 16, 16, .97);
+  box-shadow: 0 30px 60px -30px #000; animation: ps-rise .45s var(--ph-ease) both; }
+.ps-tour-card h2 { margin: 0; font-family: "Libre Baskerville", Georgia, serif; font-size: 19px; font-style: italic; font-weight: 400; letter-spacing: -.02em; }
+.ps-tour-card p { margin: 0; color: #a8a8a8; font-size: 12.5px; line-height: 1.6; }
+.ps-tour-nav { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+.ps-tour-nav span { display: flex; gap: 5px; }
+
+/* --- cmu id ---------------------------------------------------------------------------------- */
+.ps-switch { display: flex !important; grid-template-columns: none; align-items: flex-start; gap: 10px; padding-top: 10px; border-top: 1px solid var(--ph-line); cursor: pointer; }
+.ps-switch input { margin: 2px 0 0; accent-color: var(--gold); }
+.ps-switch span { display: grid; gap: 3px; font-size: 12.5px; }
+.ps-switch small { color: var(--ph-dim); font-size: 11px; line-height: 1.45; }
+
+/* --- details and sources under a row ----------------------------------------------------------- */
+.ps-group li > .ps-detail { margin: 0; padding: 0 20px 14px 70px; border-top: 0; background: rgba(255, 255, 255, .045); }
+.ps-cite { display: grid; gap: 3px; margin-top: 6px; }
+.ps-cite .ps-label { font-size: 8.5px; }
+.ps-cite a { color: #b9b9b9; font-size: 11px; text-decoration: underline; text-decoration-color: #3a3a3a; text-underline-offset: 3px; }
+.ps-cite a:hover { color: var(--gold); text-decoration-color: var(--gold); }
+
+@media (max-width: 719px) {
+  .ps-help { min-width: 40px; }
+  .ps-key-note { display: none; }
+  .ps-when-label { display: none; }
+}

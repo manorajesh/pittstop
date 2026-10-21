@@ -24,6 +24,7 @@ from shapely import STRtree
 from shapely.geometry import LineString, Point, shape
 from shapely.ops import polygonize, unary_union
 
+import cmu
 import schedules as S
 
 ROOT = Path(__file__).parent
@@ -441,6 +442,7 @@ def main():
         return best
 
     print("classifying")
+    campus_meter = cmu.street_rule(sched)
     feats, counts = [], Counter()
     for b in bl:
         t = b["way"]["tags"]
@@ -448,6 +450,9 @@ def main():
         tag = parking_tags(t)
         if tag == "x":
             k, s = "x", None
+        elif cmu.on_campus_street(short(b["name"]), *lonlat(*b["line"].interpolate(0.5, normalized=True).coords[0])):
+            k, s = "m", campus_meter
+            b["campus"] = True
         elif "meter" in b:
             k, s = "m", b["meter"]
         elif "zone" in b:
@@ -464,6 +469,8 @@ def main():
             props["s"] = s
         if "zone" in b:
             props["z"] = b["zone"]["code"]
+        if b.get("campus"):
+            props["c"] = 1
         if b["ends"][0] or b["ends"][1]:
             props["e"] = [e[0] if e else "" for e in b["ends"]]
         feats.append({"type": "Feature", "properties": props,
@@ -471,7 +478,14 @@ def main():
     print("  " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
 
     lots = []
-    for l in ppa_lots + osm_lots():
+    campus = cmu.facilities(sched)
+    campus_pts = [Point(xy(f["lon"], f["lat"])) for f in campus]
+    for f, pt in zip(campus, campus_pts):
+        lots.append({"type": "Feature", "properties": {**f["props"], "w": [nearest(pt.x, pt.y)]},
+                     "geometry": {"type": "Point", "coordinates": [f["lon"], f["lat"]]}})
+    # CMU's own records win over OSM's for the same lot.
+    near_campus = lambda p: any(p.distance(c) < 70 for c in campus_pts)
+    for l in ppa_lots + [l for l in osm_lots() if not near_campus(l["pt"])]:
         x, y = l["pt"].x, l["pt"].y
         p = {"n": l["name"], "w": [nearest(x, y)]}
         if l.get("ppa"):
@@ -503,7 +517,9 @@ def main():
             {"name": "City of Pittsburgh: Parking Authority meters", "url": "https://pghgishub-pittsburghpa.opendata.arcgis.com/datasets/pittsburghpa::pittsburgh-parking-authority-terminals", "asOf": "2018-04"},
             {"name": "City of Pittsburgh: Residential Permit Parking areas", "url": "https://data.wprdc.org/dataset/residential-permit-parking-program-areas", "asOf": "2025-11"},
             {"name": "WPRDC: payment points and rates", "url": "https://data.wprdc.org/dataset/pittsburgh-parking-meters-and-payment-points", "asOf": "2019-01"},
+            {"name": "Pittsburgh Parking Authority: meter policies and holidays", "url": "https://www.pittsburghparking.com/Enforcement-and-Metered-Parking/Meter-Policies", "asOf": "2026"},
         ],
+        "campus": cmu.meta(),
     }
 
     dump(OUT / "parking.json", {"type": "FeatureCollection", "schedules": sched.items, "features": feats})

@@ -1,11 +1,18 @@
 // The built data (pipeline/build.py), and what a window and a pin make of it.
-import { evaluateAll, Schedule, Status, Verdict, Window } from "./rules";
+import { evaluateAll, Schedule, Status, Verdict, Who, Window } from "./rules";
 
 export const BASE = import.meta.env.BASE_URL + "data/";
 
 export type Kind = "f" | "m" | "p" | "u" | "x";
-export type BlockProps = { k: Kind; n: string; w: number[]; s?: number; z?: string; e?: [string, string] };
-export type LotProps = { k: "ppa" | "garage" | "lot"; n: string; w: number[]; s?: number; f?: string; h?: string; o?: string; c?: string; cu?: 1 };
+// c: one of the CMU campus meter streets (sources in meta.campus)
+export type BlockProps = { k: Kind; n: string; w: number[]; s?: number; z?: string; e?: [string, string]; c?: 1 };
+// cmu: a CMU facility, hand-checked: g garage, src source keys, m campus-map id, sp spaces, a address, nt note, po permit-only
+export type LotProps = {
+  k: "ppa" | "garage" | "lot" | "cmu"; n: string; w: number[]; s?: number; f?: string; h?: string; o?: string; c?: string; cu?: 1;
+  g?: boolean; src?: string[]; m?: number; sp?: number; a?: string; nt?: string; po?: 1;
+};
+export type Source = { name: string; url: string; checked?: string; asOf?: string };
+export type Campus = { checked: string; sources: Record<string, Source>; mapLink: string; streetNote: string; streetSources: string[]; overnight: string };
 type Line = GeoJSON.Feature<GeoJSON.LineString, BlockProps>;
 type Pt = GeoJSON.Feature<GeoJSON.Point, LotProps>;
 
@@ -13,7 +20,7 @@ export type Data = {
   blocks: { type: "FeatureCollection"; schedules: Schedule[]; features: Line[] };
   lots: { type: "FeatureCollection"; features: Pt[] };
   zones: GeoJSON.FeatureCollection<GeoJSON.MultiPolygon, { z: string; a: string; s: number }>;
-  meta: { built: string; sources: { name: string; url: string; asOf: string }[] };
+  meta: { built: string; sources: Source[]; campus: Campus };
 };
 
 export async function load(): Promise<Data> {
@@ -41,6 +48,7 @@ export function blockVerdict(p: BlockProps, verdicts: Verdict[]): Verdict {
 }
 
 export function lotVerdict(p: LotProps, verdicts: Verdict[]): Verdict {
+  if (p.k === "cmu") return verdicts[p.s!];
   if (p.k === "ppa") {
     const v = verdicts[p.s!];
     return v.status === "free" ? { ...v, note: "Parking Authority lot, free then" } : { ...v, note: `Parking Authority lot · ${v.note}` };
@@ -54,8 +62,20 @@ export function lotVerdict(p: LotProps, verdicts: Verdict[]): Verdict {
   return { status: "unknown", cents: null, note: `${what}; fees unknown${who}` };
 }
 
-export function verdictsFor(data: Data, win: Window): Verdict[] {
-  return evaluateAll(data.blocks.schedules, win);
+export function verdictsFor(data: Data, win: Window, who: Who): Verdict[] {
+  return evaluateAll(data.blocks.schedules, win, who);
+}
+
+/** Where a block or lot's rules come from, for the "check it yourself" links. Only campus places
+ *  have their own; everything else cites the footer's citywide sources. */
+export function sourcesFor(data: Data, o: { lot?: LotProps; campus?: boolean }): Source[] {
+  const c = data.meta.campus;
+  if (o.lot?.k === "cmu") {
+    const own = (o.lot.src ?? []).map((k) => c.sources[k]).filter(Boolean);
+    return o.lot.m ? [{ name: `${o.lot.n} on CMU's campus map`, url: c.mapLink.replace("{}", String(o.lot.m)), checked: c.checked }, ...own.filter((s) => s.url !== c.sources.map?.url)] : own;
+  }
+  if (o.campus) return c.streetSources.map((k) => c.sources[k]).filter(Boolean);
+  return [];
 }
 
 export type Option = {
@@ -69,6 +89,8 @@ export type Option = {
   schedule?: Schedule;
   lot?: LotProps;
   zone?: string;
+  campus?: boolean; // a CMU campus meter street
+  note?: string; // standing notes from the source, e.g. how to pay
 };
 
 export type Results = { free: Option[]; paid: Option[]; misfit: Option[]; unknown: number };
@@ -78,7 +100,7 @@ const PAID_MAX = 6;
 const MISFIT_MAX = 8;
 
 /** The nearest options by walk time, nearest block per street so one long street can't fill the list. */
-export function rank(data: Data, verdicts: Verdict[], time: Float32Array, cutoff = 1500): Results {
+export function rank(data: Data, verdicts: Verdict[], time: Float32Array, show: Set<Status>, cutoff = 1500): Results {
   const best = (w: number[]) => {
     let t = Infinity;
     let node = -1;
@@ -105,14 +127,17 @@ export function rank(data: Data, verdicts: Verdict[], time: Float32Array, cutoff
       verdict: blockVerdict(p, verdicts),
       schedule: p.s != null ? data.blocks.schedules[p.s] : undefined,
       zone: p.z,
+      campus: !!p.c,
+      note: p.c ? data.meta.campus.streetNote : undefined,
     });
   });
   data.lots.features.forEach((f, id) => {
     const p = f.properties;
     const [seconds, node] = best(p.w);
-    if (!(seconds <= cutoff)) return;
+    // Permit-only lots stay on the map but would only crowd the list.
+    if (!(seconds <= cutoff) || p.po) return;
     all.push({
-      kind: "lot", id, name: p.n, between: p.o ?? "", seconds, node,
+      kind: "lot", id, name: p.n, between: p.k === "cmu" ? (p.sp ? `CMU · ${p.sp} spaces` : "CMU") : p.o ?? "", seconds, node, note: p.nt,
       verdict: lotVerdict(p, verdicts),
       schedule: p.s != null ? data.blocks.schedules[p.s] : undefined,
       lot: p,
@@ -121,6 +146,7 @@ export function rank(data: Data, verdicts: Verdict[], time: Float32Array, cutoff
   all.sort((x, y) => x.seconds - y.seconds);
 
   const pick = (want: (s: Status) => boolean, max: number) => {
+    if (![...show].some(want)) return [];
     const seen = new Set<string>();
     const out: Option[] = [];
     for (const o of all) {

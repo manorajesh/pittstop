@@ -1,0 +1,86 @@
+{
+  "checked": "2026-10-21",
+  "about": "Carnegie Mellon's Pittsburgh campus, read by hand from CMU Transportation Services and the Pittsburgh Parking Authority. Coordinates and space counts are CMU's campus map (Concept3D map 192); `map` is the location id there. Recheck each source before each academic year; rates below took effect Aug 24, 2026.",
+  "sources": {
+    "visitor": { "name": "CMU Transportation Services: Visitor Parking", "url": "https://www.cmu.edu/transportation/park/visitor.html" },
+    "policies": { "name": "CMU Parking Policies (PDF), section S", "url": "https://www.cmu.edu/transportation/park/parking-policies.pdf" },
+    "updates": { "name": "CMU Transportation: 2026-2027 parking updates (July 7, 2026)", "url": "https://www.cmu.edu/transportation/news/2026/student-2026-2027-parking-updates.html" },
+    "faq": { "name": "CMU Transportation Services: FAQ", "url": "https://www.cmu.edu/transportation/faq/index.html" },
+    "map": { "name": "CMU campus map, parking layer", "url": "https://map.concept3d.com/?id=192" },
+    "ppa-areas": { "name": "City of Pittsburgh: Parking Authority meter areas (CMU zone)", "url": "https://pghgishub-pittsburghpa.opendata.arcgis.com/datasets/pittsburghpa::pittsburgh-parking-authority-meter-areas" },
+    "ppa-policies": { "name": "Pittsburgh Parking Authority: Meter Policies and holidays", "url": "https://www.pittsburghparking.com/Enforcement-and-Metered-Parking/Meter-Policies" }
+  },
+  "overnight": { "hours": "11PM - 6AM", "note": "CMU reserves overnight garage parking for permit holders. CMU doesn't give the exact hours; this map treats 11 p.m. to 6 a.m. as overnight." },
+  "garages": [
+    {
+      "name": "East Campus Garage", "map": 73434, "lon": -79.940041, "lat": 40.443851, "spaces": 765, "address": "5040 Forbes Ave",
+      "tiers": [[30, 0], [60, 1500], [180, 1700], [300, 1900], [null, 2200]],
+      "affiliateTiers": [[30, 0], [60, 800], [180, 1000], [300, 1200], [null, 1500]],
+      "flat": [{ "days": "Mon - Fri", "hours": "6PM - 11PM" }, { "days": "Sat - Sun", "hours": "8AM - 11PM" }],
+      "flatCents": 1100, "affiliateFlatCents": 0,
+      "note": "Visitors can pre-book in ParkMobile. Free nights and weekends with a CMU ID (needs a $0 Nights/Weekends permit if you don't hold one). Fills early and can close to visitors during events.",
+      "sources": ["visitor", "updates", "faq", "policies", "map"]
+    },
+    {
+      "name": "Gates Garage", "map": 1070907, "lon": -79.94471, "lat": 40.443172, "spaces": 136, "address": "594-598 Boundary St, past the CIC Garage",
+      "tiers": [[180, 1900], [300, 2200], [420, 2500], [null, 2800]],
+      "flat": [{ "days": "Mon - Fri", "hours": "5PM - 11PM" }, { "days": "Sat - Sun", "hours": "6AM - 11PM" }],
+      "flatCents": 1500,
+      "note": "$15 after 5 p.m. and on weekends.",
+      "sources": ["visitor", "map"]
+    },
+    {
+      "name": "CIC Garage", "map": 1070908, "lon": -79.946579, "lat": 40.443684, "spaces": 207, "address": "594-598 Boundary St, ramp to the left",
+      "tiers": [[60, 1600], [180, 1900], [300, 2200], [420, 2600], [null, 3000]],
+      "note": "Mehrabian Collaborative Innovation Center. No evening or weekend rate listed.",
+      "sources": ["visitor", "map"]
+    },
+    {
+      "name": "Dithridge Street Garage", "map": 1070909, "lon": -79.95018, "lat": 40.446018, "spaces": 364, "address": "252 S Dithridge St",
+      "tiers": [[180, 1900], [420, 2200], [null, 2600]],
+      "flat": [{ "days": "Mon - Fri", "hours": "5PM - 11PM" }, { "days": "Sat - Sun", "hours": "6AM - 11PM" }],
+      "flatCents": 1500,
+      "note": "$15 after 5 p.m. and on weekends.",
+      "sources": ["visitor", "map"]
+    }
+  ],
+  "lots": [
+    {
+      "name": "Morewood Lot (visitor side)", "map": 1245308, "lon": -79.943916, "lat": 40.445248, "spaces": 68, "address": "1048 Morewood Ave, between Morewood Gardens and Stever House",
+      "pay": [{ "days": "Mon - Fri", "hours": "7AM - 5PM" }],
+      "note": "Pay by app (CMU lists ParkMobile pre-booking and PayByPhone); no rate published. Free 5 p.m. to 7 a.m. Mon-Thu and all weekend; ticketing starts at 8 a.m.",
+      "sources": ["visitor", "policies", "faq", "map"]
+    }
+  ],
+  "permitOnly": [
+    { "name": "Morewood Lot (gated)", "map": 649661, "lon": -79.944305, "lat": 40.445835, "spaces": 188 },
+    { "name": "Tepper Quad Garage", "map": 360840, "lon": -79.945602, "lat": 40.445118, "spaces": 101 },
+    { "name": "TCS Garage", "map": 1237952, "lon": -79.947151, "lat": 40.44524 },
+    { "name": "Fine Arts Lot", "map": 73454, "lon": -79.942062, "lat": 40.441875, "spaces": 58 },
+    { "name": "Margaret Morrison Lot", "map": 73451, "lon": -79.941002, "lat": 40.442051, "spaces": 14 },
+    { "name": "Warner Hall Lot", "map": 73462, "lon": -79.943726, "lat": 40.443935, "spaces": 12 },
+    { "name": "Greek Quad Lot", "map": 417731, "lon": -79.941399, "lat": 40.445282, "spaces": 68 },
+    { "name": "Alumni House Lot", "map": 73612, "lon": -79.941917, "lat": 40.444843 },
+    { "name": "Bramer House Lot", "map": 73613, "lon": -79.940987, "lat": 40.44593 },
+    { "name": "Forbes Beeler Lot", "map": 73614, "lon": -79.940475, "lat": 40.444645 },
+    { "name": "Donner House Lot", "map": 73453, "lon": -79.940125, "lat": 40.442085 },
+    { "name": "Hamburg Hall Lot", "map": 73615, "lon": -79.945229, "lat": 40.444218 },
+    { "name": "GATF Lot", "map": 73455, "lon": -79.947807, "lat": 40.445068 },
+    { "name": "Henry Street Lot", "map": 73458, "lon": -79.948143, "lat": 40.446293 },
+    { "name": "Zebina Way Lot", "map": 73617, "lon": -79.94799, "lat": 40.445606 },
+    { "name": "West Campus Disabled Lot", "map": 73460, "lon": -79.94593, "lat": 40.443035 },
+    { "name": "Frew St. Disabled Lot", "map": 649561, "lon": -79.945816, "lat": 40.441235 },
+    { "name": "4700 Fifth Avenue Garage", "map": 73447, "lon": -79.946999, "lat": 40.446823 },
+    { "name": "Fifth & Neville Lot and Garage", "map": 649115, "lon": -79.947083, "lat": 40.44759 },
+    { "name": "South Neville Lot", "map": 649120, "lon": -79.948067, "lat": 40.442501 },
+    { "name": "Clyde Street Lot", "map": 991777, "lon": -79.946304, "lat": 40.448025 }
+  ],
+  "streets": {
+    "names": ["Frew St", "Tech St", "Margaret Morrison St"],
+    "bbox": [-79.9475, 40.4395, -79.9370, 40.4440],
+    "pay": [{ "days": "Mon - Sat", "hours": "8AM - 6PM" }],
+    "maxHours": 10,
+    "note": "City meters in the Parking Authority's CMU zone, priced by demand (the rate shows on the meter). CMU visitor passes don't cover them.",
+    "sources": ["policies", "ppa-areas", "ppa-policies", "map"]
+  }
+}

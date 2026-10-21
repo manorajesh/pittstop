@@ -33,7 +33,6 @@ export class ParkingMap {
   private marker: Marker | null = null;
   private data: Data | null = null;
   private verdicts: Verdict[] = [];
-  private focused: { source: string; id: number } | null = null;
 
   constructor(el: HTMLElement, private on: MapEvents) {
     this.map = new MLMap({
@@ -93,7 +92,8 @@ export class ParkingMap {
       source: "lots",
       minzoom: 13,
       paint: {
-        "circle-radius": ["interpolate", ["linear"], ["zoom"], 13, 2.5, 17, 6],
+        // Garages a little larger than lots.
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 13, ["case", ["any", ["==", ["get", "k"], "garage"], ["==", ["get", "g"], true]], 3.5, 2.5], 17, ["case", ["any", ["==", ["get", "k"], "garage"], ["==", ["get", "g"], true]], 8, 6]],
         "circle-color": "#0b0b0b",
         "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 13, 1, 17, 2],
         "circle-stroke-color": COLORS.unknown,
@@ -109,31 +109,32 @@ export class ParkingMap {
     });
   }
 
-  /** Recolor every block and lot for a new window. */
-  setVerdicts(verdicts: Verdict[]) {
+  /** Recolor every block and lot for a new window, and show only the statuses in `show`. */
+  setVerdicts(verdicts: Verdict[], show: Set<Status>) {
     this.verdicts = verdicts;
     if (!this.data || !this.map.getLayer("blocks")) return;
-    const bySchedule: (string | number)[] = [];
-    verdicts.forEach((v, i) => bySchedule.push(i, COLORS[v.status]));
-    const sched = (fallback: string): ExpressionSpecification =>
+    const bySchedule: string[] = [];
+    verdicts.forEach((v, i) => bySchedule.push(i as never, v.status));
+    const sched = (fallback: Status): ExpressionSpecification =>
       bySchedule.length ? (["match", ["coalesce", ["get", "s"], -1], ...bySchedule, fallback] as unknown as ExpressionSpecification) : (fallback as never);
-    const blockColor: ExpressionSpecification = [
-      "match", ["get", "k"],
-      "f", COLORS.free,
-      "u", COLORS.unknown,
-      "x", COLORS.no,
-      sched(COLORS.unknown),
-    ];
-    this.map.setPaintProperty("blocks", "line-color", blockColor);
-    this.map.setPaintProperty("blocks-permit", "line-color", blockColor);
-    // Lots without a schedule follow their fee tag.
-    this.map.setPaintProperty("lots", "circle-stroke-color", [
+    const blockStatus: ExpressionSpecification = ["match", ["get", "k"], "f", "free", "u", "unknown", "x", "no", sched("unknown")];
+    // Lots without a schedule follow their OSM fee tag.
+    const lotStatus: ExpressionSpecification = [
       "case",
-      ["has", "s"], sched(COLORS.unknown),
-      ["all", ["==", ["get", "f"], "no"], ["!", ["has", "cu"]], ["!=", ["get", "k"], "garage"]], COLORS.free,
-      ["==", ["get", "f"], "yes"], COLORS.paid,
-      COLORS.unknown,
-    ]);
+      ["has", "s"], sched("unknown"),
+      ["all", ["==", ["get", "f"], "no"], ["!", ["has", "cu"]], ["!=", ["get", "k"], "garage"]], "free",
+      ["==", ["get", "f"], "yes"], "paid",
+      "unknown",
+    ];
+    const color = (status: ExpressionSpecification): ExpressionSpecification =>
+      ["match", status, ...(Object.entries(COLORS).flat() as string[]), COLORS.unknown] as unknown as ExpressionSpecification;
+    const shown = (status: ExpressionSpecification): ExpressionSpecification => ["in", status, ["literal", [...show]]];
+    this.map.setPaintProperty("blocks", "line-color", color(blockStatus));
+    this.map.setPaintProperty("blocks-permit", "line-color", color(blockStatus));
+    this.map.setPaintProperty("lots", "circle-stroke-color", color(lotStatus));
+    this.map.setFilter("blocks", ["all", ["!=", ["get", "k"], "p"], shown(blockStatus)]);
+    this.map.setFilter("blocks-permit", ["all", ["==", ["get", "k"], "p"], shown(blockStatus)]);
+    this.map.setFilter("lots", shown(lotStatus));
   }
 
   setPin(lonlat: [number, number] | null, fly = false) {
@@ -159,7 +160,6 @@ export class ParkingMap {
   focus(target: { kind: "block" | "lot"; id: number } | null) {
     const src = this.map.getSource("focus") as GeoJSONSource | undefined;
     if (!src || !this.data) return;
-    this.focused = target ? { source: target.kind, id: target.id } : null;
     if (!target) return src.setData(empty());
     const f = target.kind === "block" ? this.data.blocks.features[target.id] : this.data.lots.features[target.id];
     src.setData(f as never);

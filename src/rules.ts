@@ -8,6 +8,7 @@ export const MAX_WINDOW_MIN = 7 * 1440;
 
 export type Meter = {
   kind: "meter";
+  owner?: "cmu"; // not a city meter, so city holidays don't apply
   pay: [number, number, number | null][]; // [start, end, cents per hour or null when unknown]
   max: number | null; // minutes
   no: [number, number][]; // no parking at all, e.g. rush hour
@@ -15,7 +16,30 @@ export type Meter = {
   assumed: boolean;
 };
 export type Permit = { kind: "permit"; lim: [number, number][]; grace: number; assumed: boolean };
-export type Schedule = Meter | Permit;
+/** A garage priced by length of stay: tiers of [up to minutes, cents], a flat rate inside `flat`,
+ *  and `closed` hours visitors can't be there (overnight is permit holders only). `aff*` are CMU-ID prices. */
+export type Garage = {
+  kind: "garage";
+  owner?: "cmu";
+  tiers: [number, number][];
+  aff?: [number, number][];
+  flat: [number, number][];
+  flatCents: number | null;
+  affFlatCents?: number | null;
+  closed: [number, number][];
+};
+export type Private = { kind: "private"; owner?: "cmu" };
+export type Schedule = Meter | Permit | Garage | Private;
+
+/** What the viewer brings: a CMU ID unlocks CMU's affiliate garage rates. */
+export type Who = { cmu: boolean };
+const NOBODY: Who = { cmu: false };
+
+// No meter enforcement on these days (Pittsburgh Parking Authority, Meter Policies).
+export const PPA_HOLIDAYS = new Set([
+  "2026-01-01", "2026-01-19", "2026-04-03", "2026-05-25", "2026-06-19", "2026-07-04", "2026-09-07",
+  "2026-11-11", "2026-11-26", "2026-11-27", "2026-11-28", "2026-12-25", "2026-12-26", "2027-01-01",
+]);
 
 export type Status = "free" | "paid" | "limit" | "no" | "unknown";
 export type Verdict = {
@@ -78,21 +102,32 @@ export function toLocal(t: number): string {
   return `${w.y}-${p(w.mo)}-${p(w.d)}T${p(w.h)}:${p(w.mi)}`;
 }
 
-/** Week minute for each minute of the window, so DST changes inside it are honored. */
-function minutes(win: Window): Int16Array {
+type Minutes = Int16Array & { holiday?: Uint8Array };
+
+/** Week minute for each minute of the window, so DST changes inside it are honored; `holiday` marks
+ *  minutes on a Parking Authority holiday. */
+function minutes(win: Window): Minutes {
   const n = Math.max(0, Math.min(MAX_WINDOW_MIN, Math.round((win.to - win.from) / 60000)));
-  const out = new Int16Array(n);
+  const out: Minutes = new Int16Array(n);
+  const holiday = new Uint8Array(n);
   let hourStart = -1;
   let base = 0;
+  let isHoliday = 0;
   for (let i = 0; i < n; i++) {
     const t = win.from + i * 60000;
     // One timezone lookup per hour; the minutes in between just count up.
     if (hourStart < 0 || i - hourStart >= 60) {
       hourStart = i;
       base = weekMinute(t);
+      isHoliday = PPA_HOLIDAYS.has(toLocal(t).slice(0, 10)) ? 1 : 0;
     }
-    out[i] = (base + (i - hourStart)) % WEEK;
+    const m = base + (i - hourStart);
+    // A day boundary inside the hour: look again.
+    if (m % 1440 === 0 && i !== hourStart) isHoliday = PPA_HOLIDAYS.has(toLocal(t).slice(0, 10)) ? 1 : 0;
+    out[i] = m % WEEK;
+    holiday[i] = isHoliday;
   }
+  out.holiday = holiday;
   return out;
 }
 
@@ -109,21 +144,24 @@ function weekMask(intervals: [number, number, (number | null)?][]): Int32Array {
 }
 
 const masks = new WeakMap<Schedule, { pay: Int32Array; no: Int32Array }>();
-function maskFor(s: Schedule) {
+function maskFor(s: Meter | Permit | Garage) {
   let m = masks.get(s);
   if (!m) {
-    m = s.kind === "meter" ? { pay: weekMask(s.pay), no: weekMask(s.no) } : { pay: weekMask(s.lim.map(([a, b]) => [a, b, 0])), no: weekMask([]) };
+    m =
+      s.kind === "meter" ? { pay: weekMask(s.pay), no: weekMask(s.no) }
+      : s.kind === "permit" ? { pay: weekMask(s.lim.map(([a, b]) => [a, b, 0])), no: weekMask([]) }
+      : { pay: weekMask(s.flat.map(([a, b]) => [a, b, 0])), no: weekMask(s.closed) };
     masks.set(s, m);
   }
   return m;
 }
 
 /** Runs of consecutive enforced minutes within the window: [startIndex, length]. */
-function runs(mins: Int16Array, enforced: Int32Array): [number, number][] {
+function runs(mins: Minutes, enforced: Int32Array, skipHolidays = false): [number, number][] {
   const out: [number, number][] = [];
   let start = -1;
   for (let i = 0; i <= mins.length; i++) {
-    const on = i < mins.length && enforced[mins[i]] !== -2;
+    const on = i < mins.length && enforced[mins[i]] !== -2 && !(skipHolidays && mins.holiday?.[i]);
     if (on && start < 0) start = i;
     if (!on && start >= 0) {
       out.push([start, i - start]);
@@ -133,18 +171,23 @@ function runs(mins: Int16Array, enforced: Int32Array): [number, number][] {
   return out;
 }
 
-const hrs = (min: number) => (min % 60 ? `${(min / 60).toFixed(1).replace(/\.0$/, "")} hr` : `${min / 60} hr`);
+const hrs = (min: number) => (min < 60 ? `${min} min` : min % 60 ? `${(min / 60).toFixed(1).replace(/\.0$/, "")} hr` : `${min / 60} hr`);
 
-export function evaluate(s: Schedule, win: Window, mins = minutes(win)): Verdict {
+export function evaluate(s: Schedule, win: Window, mins = minutes(win), who: Who = NOBODY): Verdict {
+  if (s.kind === "private") return { status: "no", cents: null, note: "CMU permit holders only" };
   const { pay, no } = maskFor(s);
   if (!mins.length) return { status: "unknown", cents: null, note: "Pick a time window" };
 
   const blocked = mins.findIndex((m) => no[m] !== -2);
   if (blocked >= 0) {
-    return { status: "no", cents: null, note: `No parking from ${clock(win.from + blocked * 60000)}`, until: win.from + blocked * 60000 };
+    const at = clock(win.from + blocked * 60000);
+    const note = s.kind === "garage" ? `Overnight is for permit holders; out by ${at}` : `No parking from ${at}`;
+    return { status: "no", cents: null, note, until: win.from + blocked * 60000 };
   }
+  if (s.kind === "garage") return garage(s, mins, who);
 
-  const stretches = runs(mins, pay);
+  const cityMeter = s.kind === "meter" && s.owner !== "cmu";
+  const stretches = runs(mins, pay, cityMeter);
   if (s.kind === "permit") {
     const longest = stretches.reduce((a, [, n]) => Math.max(a, n), 0);
     const tail = s.assumed ? " (posted hours unknown; check the sign)" : "";
@@ -155,7 +198,10 @@ export function evaluate(s: Schedule, win: Window, mins = minutes(win)): Verdict
     return { status: "limit", cents: null, note: `Permit zone: ${hrs(s.grace)} limit without a permit; move by ${clock(until)}${tail}`, until };
   }
 
-  if (!stretches.length) return { status: "free", cents: 0, note: "Meter's off then" };
+  if (!stretches.length) {
+    const holiday = cityMeter && mins.holiday?.some((h, i) => h && pay[mins[i]] !== -2);
+    return { status: "free", cents: 0, note: holiday ? "Meters are off for the holiday" : s.owner === "cmu" ? "Free then" : "Meter's off then" };
+  }
   if (s.max != null) {
     const over = stretches.find(([, n]) => n > s.max!);
     if (over) {
@@ -166,16 +212,16 @@ export function evaluate(s: Schedule, win: Window, mins = minutes(win)): Verdict
   let cents = 0;
   let known = true;
   let paid = 0;
-  for (const m of mins) {
-    const r = pay[m];
-    if (r === -2) continue;
+  for (let i = 0; i < mins.length; i++) {
+    const r = pay[mins[i]];
+    if (r === -2 || (cityMeter && mins.holiday?.[i])) continue;
     paid++;
     if (r < 0) known = false;
     else cents += r / 60;
   }
   const first = win.from + stretches[0][0] * 60000;
   const starts = stretches[0][0] > 0 ? ` from ${clock(first)}` : "";
-  const rateText = s.dynamic ? "Demand-priced meter; see the meter" : known ? `${rateLabel(s)}${starts}` : `Metered${starts}; rate not listed`;
+  const rateText = s.dynamic ? "Demand-priced meter; see the meter" : known ? `${rateLabel(s)}${starts}` : s.owner === "cmu" ? `Pay by app${starts}; rate not published` : `Metered${starts}; rate not listed`;
   const assumed = s.assumed ? " (hours assumed)" : "";
   return {
     status: "paid",
@@ -185,15 +231,33 @@ export function evaluate(s: Schedule, win: Window, mins = minutes(win)): Verdict
   };
 }
 
+/** Garages charge once for the stay: the first tier it fits, or the flat rate when every minute is in a flat window. */
+function garage(s: Garage, mins: Minutes, who: Who): Verdict {
+  const { pay: flat } = maskFor(s);
+  const n = mins.length;
+  const aff = who.cmu && !!s.aff;
+  const allFlat = s.flatCents != null && s.flat.length > 0 && Array.from(mins).every((m) => flat[m] !== -2);
+  if (allFlat) {
+    const cents = aff && s.affFlatCents != null ? s.affFlatCents : s.flatCents!;
+    return { status: cents ? "paid" : "free", cents, note: cents ? `Evening/weekend rate ${money(cents)}` : "Free nights and weekends with a CMU ID" };
+  }
+  const table = aff ? s.aff! : s.tiers;
+  const [upTo, cents] = table.find(([m]) => n <= m) ?? table[table.length - 1];
+  const tierText = upTo >= 10 ** 6 ? `${hrs(table[table.length - 2]?.[0] ?? 0)}+` : `up to ${hrs(upTo)}`;
+  const who_ = aff ? "CMU rate" : "visitor rate";
+  if (!cents) return { status: "free", cents: 0, note: `First ${hrs(upTo)} free` };
+  return { status: "paid", cents, note: `${money(cents)} ${who_}, ${tierText}` };
+}
+
 function rateLabel(s: Meter): string {
   const rates = [...new Set(s.pay.map(([, , r]) => r).filter((r): r is number => r != null))].sort((a, b) => a - b);
   return rates.map((r) => `${money(r)}/hr`).join("–");
 }
 
 /** Every schedule's verdict for one window; the map and the list both read from this. */
-export function evaluateAll(schedules: Schedule[], win: Window): Verdict[] {
+export function evaluateAll(schedules: Schedule[], win: Window, who: Who = NOBODY): Verdict[] {
   const mins = minutes(win);
-  return schedules.map((s) => evaluate(s, win, mins));
+  return schedules.map((s) => evaluate(s, win, mins, who));
 }
 
 // --- text ------------------------------------------------------------------------------------
@@ -244,6 +308,14 @@ export function hoursText(intervals: [number, number, ...unknown[]][]): string {
 
 /** The standing rules, independent of any window: 'Mon–Sat 8a–6p · $3/hr · 2 hr max'. */
 export function describe(s: Schedule): string {
+  if (s.kind === "private") return "CMU permit holders only";
+  if (s.kind === "garage") {
+    const tier = ([m, c]: [number, number]) => (c === 0 ? `first ${hrs(m)} free` : `${m >= 10 ** 6 ? "longer" : `≤${hrs(m)}`} ${money(c)}`);
+    const t = s.tiers.map(tier).join(", ");
+    const flat = s.flat.length && s.flatCents != null ? ` · ${money(s.flatCents)} ${hoursText(s.flat)}` : "";
+    const aff = s.aff ? ` · CMU ID: ${s.aff.map(tier).join(", ")}${s.affFlatCents === 0 ? ", free evenings and weekends" : ""}` : "";
+    return `Visitors ${t}${flat}${aff} · no overnight`;
+  }
   if (s.kind === "permit") {
     return `Permit ${hoursText(s.lim)} · ${hrs(s.grace)} without a permit${s.assumed ? " (assumed)" : ""}`;
   }
