@@ -48,10 +48,17 @@ def overpass(query: str) -> bytes:
 
 
 def arcgis(url: str) -> bytes:
-    params = {"where": "1=1", "outFields": "*", "outSR": 4326, "f": "geojson"}
-    r = requests.get(url, params=params, headers=UA, timeout=120)
-    r.raise_for_status()
-    return r.content
+    # The service caps each page at 1000 features, so page until it runs dry.
+    features, offset = [], 0
+    while True:
+        params = {"where": "1=1", "outFields": "*", "outSR": 4326, "f": "geojson", "resultOffset": offset}
+        r = requests.get(url, params=params, headers=UA, timeout=120)
+        r.raise_for_status()
+        page = r.json()["features"]
+        features += page
+        if len(page) < 1000:
+            return json.dumps({"type": "FeatureCollection", "features": features}).encode()
+        offset += len(page)
 
 
 def main() -> None:
