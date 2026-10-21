@@ -47,7 +47,9 @@ export function lotVerdict(p: LotProps, verdicts: Verdict[]): Verdict {
   }
   const what = p.k === "garage" ? "Garage" : "Lot";
   const who = p.cu ? ", customers only" : "";
-  if (p.f === "no") return { status: p.cu ? "unknown" : "free", cents: 0, note: `Free ${what.toLowerCase()}${who}` };
+  // Garages tagged free in OSM are usually campus or hospital decks with fees the tag missed.
+  if (p.f === "no" && p.k === "garage") return { status: "unknown", cents: null, note: `Garage tagged free in OpenStreetMap; check before you rely on it${who}` };
+  if (p.f === "no") return { status: p.cu ? "unknown" : "free", cents: 0, note: `Free lot per OpenStreetMap${who}` };
   if (p.f === "yes") return { status: "paid", cents: null, note: `Paid ${what.toLowerCase()}${p.c ? ` · ${p.c}` : ""}; rate not listed${who}` };
   return { status: "unknown", cents: null, note: `${what}; fees unknown${who}` };
 }
@@ -94,8 +96,10 @@ export function rank(data: Data, verdicts: Verdict[], time: Float32Array, cutoff
     const [seconds, node] = best(p.w);
     if (!(seconds <= cutoff)) return;
     const [a, b] = p.e ?? ["", ""];
-    const name = p.n || (a || b ? `Alley off ${a || b}` : "Unnamed street");
-    const between = p.n && a && b ? `${a} to ${b}` : p.n && (a || b) ? `at ${a || b}` : "";
+    // Unnamed blocks are mostly alleys, where parking is rarely legal; they stay on the map, off the list.
+    if (!p.n) return;
+    const name = p.n;
+    const between = a && b ? `${a} to ${b}` : a || b ? `at ${a || b}` : "";
     all.push({
       kind: "block", id, name, between, seconds, node,
       verdict: blockVerdict(p, verdicts),

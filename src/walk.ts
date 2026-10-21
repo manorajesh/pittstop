@@ -151,11 +151,16 @@ export function route(g: Graph, tree: Tree, node: number): Route | null {
   let meters = 0;
   let climb = 0;
   let flights = 0;
+  let sinceSteps = Infinity; // meters walked since the last step; a landing doesn't start a new flight
   for (let i = 1; i < path.length; i++) {
     const [a, b] = [path[i - 1], path[i]];
-    meters += Math.hypot(g.x[b] - g.x[a], g.y[b] - g.y[a]);
+    const len = Math.hypot(g.x[b] - g.x[a], g.y[b] - g.y[a]);
+    meters += len;
     climb += Math.max(0, g.elev[b] - g.elev[a]);
-    if (stepEdges[i] && !stepEdges[i - 1]) flights++;
+    if (stepEdges[i]) {
+      if (sinceSteps > 30) flights++;
+      sinceSteps = 0;
+    } else sinceSteps += len;
   }
   return { coords: path.map((i) => [g.lon[i], g.lat[i]]), meters, climb, flights, seconds: tree.time[node] };
 }

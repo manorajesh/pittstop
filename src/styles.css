@@ -22,7 +22,8 @@
 html, body { margin: 0; background: #0b0b0b; }
 .ps-root * { box-sizing: border-box; }
 .ps-root a { color: inherit; text-decoration: none; }
-.ps-root button { font: inherit; color: inherit; }
+/* Zero specificity, so the box and pill classes below set their own type. */
+:where(.ps-root) button { font-family: inherit; color: inherit; }
 .ps-root :focus-visible { outline: 1px solid rgba(255, 255, 255, .5); outline-offset: 2px; }
 .ps-gold { color: var(--gold); }
 

@@ -1,7 +1,8 @@
 // The map: basemap, parking blocks colored for the current window, lots, permit zones, the pin and
 // a walking route. The page drives it through a few methods, the way city-steps drives its scene.
-import { ExpressionSpecification, GeoJSONSource, Map as MLMap, Marker } from "maplibre-gl";
+import { ExpressionSpecification, GeoJSONSource, Map as MLMap, Marker, setWorkerUrl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import { basemap, FONT } from "./basemap";
 import { blockVerdict, Data, lotVerdict } from "./data";
 import type { Status, Verdict } from "./rules";
@@ -23,6 +24,9 @@ export type MapEvents = {
   hover: (info: { name: string; verdict: Verdict; x: number; y: number } | null) => void;
   ready: () => void;
 };
+
+// MapLibre looks for its tile worker next to its own module, which bundling moves; point it at the copy.
+setWorkerUrl(new URL(workerUrl, location.href).href);
 
 export class ParkingMap {
   map: MLMap;
@@ -126,7 +130,7 @@ export class ParkingMap {
     this.map.setPaintProperty("lots", "circle-stroke-color", [
       "case",
       ["has", "s"], sched(COLORS.unknown),
-      ["all", ["==", ["get", "f"], "no"], ["!", ["has", "cu"]]], COLORS.free,
+      ["all", ["==", ["get", "f"], "no"], ["!", ["has", "cu"]], ["!=", ["get", "k"], "garage"]], COLORS.free,
       ["==", ["get", "f"], "yes"], COLORS.paid,
       COLORS.unknown,
     ]);

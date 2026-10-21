@@ -489,7 +489,7 @@ function statusText(v: Verdict) {
 
 function priceText(v: Verdict) {
   if (v.status === "free") return "Free";
-  if (v.status === "paid") return v.cents != null ? money(v.cents) : "$?";
+  if (v.status === "paid") return v.cents != null ? money(v.cents) : "Paid";
   if (v.status === "limit") return "Limit";
   if (v.status === "no") return "No";
   return "?";
