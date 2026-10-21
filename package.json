@@ -1,0 +1,24 @@
+{
+  "name": "pittstop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "data": "cd pipeline && uv run python fetch.py && uv run python build.py && uv run python report.py",
+    "publish-site": "sh scripts/publish.sh"
+  },
+  "dependencies": {
+    "maplibre-gl": "^6.15.0",
+    "preact": "^11.0.1"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "typescript": "^7.0.2",
+    "vite": "^6.4.4",
+    "vitest": "^3.2.7"
+  }
+}
