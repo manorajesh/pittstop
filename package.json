@@ -1,7 +1,15 @@
 {
   "name": "pittstop",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "description": "Free and paid parking in Pittsburgh, by walking time, for the hours you need it. Private by design.",
+  "license": "MIT",
+  "author": "Mano Rajesh",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/manorajesh/pittstop.git"
+  },
+  "homepage": "https://mano.raje.sh/pittstop/",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +17,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "data": "cd pipeline && uv run python fetch.py && uv run python build.py && uv run python report.py",
-    "publish-site": "sh scripts/publish.sh"
+    "publish-site": "sh scripts/publish.sh",
+    "basemap": "cd pipeline && uv run python basemap.py"
   },
   "dependencies": {
     "maplibre-gl": "^6.15.0",
