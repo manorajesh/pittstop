@@ -80,7 +80,7 @@ describe("walk", () => {
     } catch {
       return; // not built yet
     }
-    const g = decode(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+    const g = decode(new Uint8Array(buf).buffer);
     // Hamerschlag Hall, CMU, is in Pittsburgh, on a hill, and walkable.
     const s = snap(g, -79.9446, 40.4424);
     expect(s.meters).toBeLessThan(80);

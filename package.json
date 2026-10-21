@@ -17,6 +17,8 @@
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.6",
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "^26.6.5",
     "typescript": "^7.0.2",
     "vite": "^6.4.4",
     "vitest": "^3.2.7"
